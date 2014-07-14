@@ -39,10 +39,10 @@ Note: At this time a new Subscription to Nagios needs to be manually confirmed. 
 
 ###Creating RDS Read Latency Alarm
 ```
-In AWS Console, go to CloudWatch: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
+In AWS Console, go to CloudWatch: URL: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
 ```
 ```
-Click [https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#metrics: Browse Metrics]
+Click [URL: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#metrics: Browse Metrics]
 ```
 ```
 To set up monitoring of database (RDS) latency, click "RDS Metrics".

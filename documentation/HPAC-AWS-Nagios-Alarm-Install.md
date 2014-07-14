@@ -126,18 +126,32 @@ Example: nagios-dev@fas.harvard.edu
 
 ###Alarm Preview
 
-#* the name of the metric being watched for this alarm
+```
+Field: Alarm Preview
+Convention: A descriptive verse on the definition of the alarm that you are about to create.
+Example: This alarm will trigger when the blue line goes up to or above the red line for a duration of 5 minutes
 
-# Enter the criteria for the threshold
+Field: Namespace
+Convention: AWS/Service Name
+Example: AWS/RDS
 
-# Add Actions:
+Field: DBInstance-Identifier
+Convention: Name of RDS instance (DO NOT CHANGE)
+Example: hpacdbinstance
 
-## Choose the notification list ("Topic") from the pop-up list for the ALARM state
+Field: Metric Name
+Convention: Name of the metric that was chosen
+Example: ReadLatency
 
-## Click "+Notification" and add the same notification list for "State is OK"
+Field: Period
+Convention: Time in minutes that the "Metric" was not met.
+Example:  5 Minutes
 
-
-==== Sending Alarm Events via Nagios ====
+Field: Statistic
+Convention: Minimum OR  Maximum OR Sum OR Average OR Data Samples
+Example: Average
+```
+###Sending Alarm Events via Nagios
 
 In order for Nagios to be able to receive and process an alarm message from AWS SNS, a standard Nagios Host and Service configuration must each be created.
 

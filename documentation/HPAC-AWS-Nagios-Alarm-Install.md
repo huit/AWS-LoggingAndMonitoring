@@ -7,10 +7,20 @@ Welcome to the HPAC Nagios AWS Alerts Installation Guide.  This file contains al
 
 The following procedures need to be followed to add AWS CloudWatch alarms that will send sns alerts to Nagios that will notify the HUIT Operation Center personnel of a possible issue with the HPAC Drupal Web sites.
 
-###Procedures
+###Account
+cloudhacks
 
-###AWS Monitoring
+###Application
+HPAC Drupal
 
+
+###AWS Service
+RDS - Managed Relational Database Service
+
+
+
+###AWS Event
+RDS - Read Latency
 
 ###AWS SNS Topics ====
 
@@ -27,7 +37,7 @@ Note: At this time a new Subscription to Nagios needs to be manually confirmed. 
 
 
 
-###Creating Alarms
+###Creating RDS Read Latency Alarm
 ```
 In AWS Console, go to CloudWatch: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
 ```

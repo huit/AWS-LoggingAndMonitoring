@@ -29,12 +29,14 @@ In AWS, Topics are the in-point for a notification. When a metric crosses the de
 ```
 https://console.aws.amazon.com/sns/home?region=us-east-1#
 ```
+```
 A Topic has Subscriptions which are the destinations for the message. Subscriptions can be SMS, email, HTTP/HTTPS. At this time (Summer 2014) we recommend each critical-level Topic that sends to Nagios should have an additional email Subscription as a backup. (If a metric is simply a performance monitor, it can safely use a Topic with the Nagios subscription alone.)
 
 For sending alarm notifications to production Nagios (as of Summer 2014) a Topic needs to have a Subscription which is HTTPS and with the following URL: https://nagios.fas.harvard.edu/aws_sns_receiver.php
 
 Note: At this time a new Subscription to Nagios needs to be manually confirmed. This will no longer be necessary after the HUIT upgrade to Nagios 4 later in 2014, because that will allow auto-confirmation of subscriptions.
 
+```
 
 
 ###Creating RDS Read Latency Alarm

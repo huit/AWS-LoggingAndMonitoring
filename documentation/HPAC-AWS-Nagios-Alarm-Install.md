@@ -168,3 +168,151 @@ cloudhacks|HPAC Drupal|RDS|smartinodbinstance|This is only an example alarm by S
 When Nagios accepts the Alarm message from SNS, this Description data will be used to change the Nagios state for the "Host" named 'HPAC Drupal'.
 
 As we further develop Nagios alerting for AWS applications, we will be using the additional data fields in the Description to allow routing of the alert notifications.
+
+```
+================== hostgroups.cfg ========================
+
+define hostgroup {
+	hostgroup_name	aws tests
+	alias		Test targets for developing AWS connector
+	members		kwp490-ELB-Alarm,awselb-TestLoggi-ElasticL-151NCQZ5JP9OP-High-Average-Latency,HPAC-Drup-ElasticL-1WMWZLXKU4EVX-1226981564
+}
+
+
+define hostgroup {
+	hostgroup_name	HPAC in AWS
+	alias		Harvard Publishing and Communications applications in the Amazon cloud
+	members		HPAC Drupal RDS Read Latency Alarm,HPAC Drupal RDS Write Latency Alarm,HPAC-Drup-ElasticL-1WMWZLXKU4EVX-1226981564
+}
+
+```
+
+```
+================ services.cfg ==============================
+
+define service {
+	name				aws-service
+	use				generic-service
+	contact_groups			aws-group
+	max_check_attempts		1
+	register			0
+}
+
+
+define service {
+	use				aws-service
+	host_name			HPAC Drupal RDS Read Latency Alarm
+	service_description		ReadLatency
+	check_command			FAKE-host-alive
+	check_period			none
+	passive_checks_enabled		1
+}
+
+define service {
+	use				aws-service
+	host_name			HPAC Drupal RDS Write Latency Alarm
+	service_description		WriteLatency
+	check_command			FAKE-host-alive
+	check_period			none
+	passive_checks_enabled		1
+}
+
+
+define service {
+	use				test-service
+	host_name			HPAC-Drup-ElasticL-1WMWZLXKU4EVX-1226981564
+	service_description		HTTP
+	check_command			check_http
+}
+
+define service {
+	use				test-service
+	host_name			HPAC-Drup-ElasticL-1WMWZLXKU4EVX-1226981564
+	service_description		HTTP content scrape
+	check_command			check_http_url_scrape!80!/!"Welcome to Drupal"
+}
+define serviceextinfo {
+	host_name			HPAC-Drup-ElasticL-1WMWZLXKU4EVX-1226981564
+	service_description		HTTP content scrape
+	action_url			http://hpac-drup-elasticl-1wmwzlxku4evx-1226981564.us-east-1.elb.amazonaws.com/
+	notes				Health check via scrape for "Welcome to Drupal" in the returned HTML.
+}
+
+```
+
+```
+========================= hosts.cfg ===============================
+
+
+
+define host {
+	use			test-host
+	host_name		HPAC Drupal RDS Read Latency Alarm
+	alias			HPAC Drupal RDS Read Latency Alarm
+	check_command		FAKE-host-alive
+	check_period		none
+	passive_checks_enabled	1
+}
+
+define host {
+	use			test-host
+	host_name		HPAC Drupal RDS Write Latency Alarm
+	alias			HPAC Drupal RDS Write Latency Alarm
+	check_command		FAKE-host-alive
+	check_period		none
+	passive_checks_enabled	1
+}
+
+
+define host {
+	use			test-host
+	host_name		HPAC-Drup-ElasticL-1WMWZLXKU4EVX-1226981564
+	alias			HPAC-Drup-ElasticL-1WMWZLXKU4EVX-1226981564.us-east-1.elb.amazonaws.com
+	address			HPAC-Drup-ElasticL-1WMWZLXKU4EVX-1226981564.us-east-1.elb.amazonaws.com
+	check_command		FAKE-host-alive
+}
+
+```
+
+```
+===================== contacts.cfg =================================
+
+define contact {
+	contact_name			openview-HPAC
+	alias				ITO SOC Operations OpenView - Notify Amazon Web Services
+	email				None
+	address1			HPAC
+	service_notification_period	24x7
+	host_notification_period	24x7
+	service_notification_options	w,u,c,r
+	host_notification_options	d,u,r
+	service_notification_commands	notify-openview-service
+	host_notification_commands	notify-openview-host
+}
+
+
+define contact {
+	contact_name			stephen_martino
+	alias				Stephen Martino
+	email				stephen_martino@harvard.edu
+	pager				None
+	service_notification_period	24x7
+	host_notification_period	24x7
+	service_notification_options	c,r,u
+	host_notification_options	d,r
+	service_notification_commands	notify-by-email
+	host_notification_commands	host-notify-by-email
+}
+
+```
+```
+================== contactgroups.cfg ====================================
+
+
+define contactgroup {
+	contactgroup_name	aws-group
+	alias			Amazon Web Services Contact Group
+	members			openview-HPAC,stephen_martino,wuensch
+}
+
+```

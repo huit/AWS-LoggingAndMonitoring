@@ -1,86 +1,61 @@
-#HPAC Splunk Installation Guide
+#HPAC Nagios Alerts Installation Guide
 ======================
 
-Welcome to the HPAC Splunk Installation Guide.  This file contains all of the documentation for adding Splunk Logging capabilities to the production AWS HA Drupal instances using automated scripts and CloudFormation Stack Templates.
+Welcome to the HPAC Nagios AWS Alerts Installation Guide.  This file contains all of the documentation for adding Nagios Alerts for HPAC Amazon Web Services.
 
-###Service Description
+###Nagios Alerts for AWS Service Description
 
-The following code needs to be added to your CloudFormation Template that will automate the creation and redirection of specific logs to an S3 bucket.
+The following procedures need to be followed to add AWS CloudWatch alarms that will send sns alerts to Nagios that will notify the HUIT Operation Center personnel of a possible issue with the HPAC Drupal Web sites.
 
-### S3 Bucket Standard Creation Parameters
-```
-S3 Bucket Name: hpac_splunk_logging_bucket
-S3 Location (Region): US Standard
-S3 Lifecycle Rules In Place: Delete Entire Bucket every 45 Days
-```
+###Procedures
 
-### Splunk Script
+###AWS Monitoring
 
-```
-# Begin Splunk Installation
-# Installing s3 cmd tools in proper directory on the server and install it!
-cd /home/ec2-user
-https://github.com/stephenmartino/AWS-LoggingAndMonitoring/blob/master/documentation/images/metricdefinition.tiff
-git clone https://github.com/s3tools/s3cmd.git
-cd s3cmd
-python setup.py install
 
-# Enable system logging to s3 by configuring log rotate
-cat <<\syslogEOF > /etc/logrotate.d/syslog
-/var/log/cron
-/var/log/maillog
-/var/log/messages
-/var/log/secure
-/var/log/spooler
-{
-  missingok
-# Set the initial size of the log to 1 that will force the creation of the INSTANCE_ID directories being created
-# during the hourly log rotate operation
-  size 1
-  sharedscripts
-  dateext
-  dateformat -%Y-%m-%d-%s
-  postrotate
-    /bin/kill -HUP `cat /var/run/syslogd.pid 2> /dev/null` 2> /dev/null || true
-    BUCKET=hpac_splunk_logging_bucket
-    INSTANCE_ID=`curl --silent http://169.254.169.254/latest/meta-data/instance-id | sed -e "s/i-//"`
-    /usr/bin/s3cmd -m text/plain sync /var/log/messages-* s3://${BUCKET}/${INSTANCE_ID}/var/log/
-    /usr/bin/s3cmd -m text/plain sync /var/log/cron-* s3://${BUCKET}/${INSTANCE_ID}/var/log/
-    /usr/bin/s3cmd -m text/plain sync /var/log/maillog-* s3://${BUCKET}/${INSTANCE_ID}/var/log/
-    /usr/bin/s3cmd -m text/plain sync /var/log/secure-* s3://${BUCKET}/${INSTANCE_ID}/var/log/
-    /usr/bin/s3cmd -m text/plain sync /var/log/spooler-* s3://${BUCKET}/${INSTANCE_ID}/var/log/
-  endscript
-}
-syslogEOF
+###AWS SNS Topics ====
 
-# Enable system logging to s3 by configuring log rotate for httpd
-cat <<\httpdEOF > /etc/logrotate.d/httpd
-/var/log/httpd/*log {
-  missingok
-# Set the initial size of the log to 1 that will force the creation of the INSTANCE_ID directories being created
-# during the hourly log rotate operation
-  size 1
-  notifempty
-  sharedscripts
-  dateext
-  dateformat -%Y-%m-%d-%s
-  postrotate
-    BUCKET=boot_camp_logging_bucket
-    INSTANCE_ID=`curl --silent http://169.254.169.254/latest/meta-data/instance-id | sed -e "s/i-//"`
-    /usr/bin/s3cmd -m text/plain sync /var/log/httpd/*log s3://${BUCKET}/${INSTANCE_ID}/var/log/httpd/
-    /sbin/service httpd reload > /dev/null 2>/dev/null || true
-  endscript
-}
-httpdEOF
-
-# Setup up cron to run this hourly 
-mv /etc/cron.daily/logrotate /etc/cron.hourly/.
-# End Splunk Installation
+In AWS, Topics are the in-point for a notification. When a metric crosses the defined threshold, the message is sent to the Topic.
 
 ```
+https://console.aws.amazon.com/sns/home?region=us-east-1#
+```
+A Topic has Subscriptions which are the destinations for the message. Subscriptions can be SMS, email, HTTP/HTTPS. At this time (Summer 2014) we recommend each critical-level Topic that sends to Nagios should have an additional email Subscription as a backup. (If a metric is simply a performance monitor, it can safely use a Topic with the Nagios subscription alone.)
 
-### Manual Rotation of Server Logs:
-Description: In the event that you need to perform a manual rotation of the server logs needs, execute the following commands on your linux instances.
+For sending alarm notifications to production Nagios (as of Summer 2014) a Topic needs to have a Subscription which is HTTPS and with the following URL: https://nagios.fas.harvard.edu/aws_sns_receiver.php
+
+Note: At this time a new Subscription to Nagios needs to be manually confirmed. This will no longer be necessary after the HUIT upgrade to Nagios 4 later in 2014, because that will allow auto-confirmation of subscriptions.
+
+
+
+###Creating Alarms
 ```
-$> sudo logrotate -v -f /etc/logrotate.conf
+In AWS Console, go to CloudWatch: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
 ```
+```
+Click [https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#metrics: Browse Metrics]
+```
+```
+To set up monitoring of database (RDS) latency, click "RDS Metrics".
+```
+
+# Search either for the RDS database name, or simply search for the metric. For example, searching for "latency" will return read and write latency for all RDS instances.
+
+# Click the checkbox for the metric for which you want to create the alarm.
+
+# At the bottom right of the graph panel that appears, click "Create Alarm". Note that the graph shows previous data for this metric which you can use to determine the threshold for this new alarm.
+
+# Give the new alarm a name that indicates as much information as possible, optimally including:
+
+#* stack name
+
+#* database name
+
+#* the name of the metric being watched for this alarm
+
+# Enter the criteria for the threshold
+
+# Add Actions:
+
+## Choose the notification list ("Topic") from the pop-up list for the ALARM state
+
+## Click "+Notification" and add the same notification list for "State is OK"

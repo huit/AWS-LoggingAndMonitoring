@@ -1,23 +1,25 @@
 #HPAC Nagios Alerts Installation Guide
-======================
+================================================================================================================================================================
 
-Welcome to the HPAC Nagios AWS Alerts Installation Guide.  This file contains all of the documentation for adding Nagios Alerts for HPAC Amazon Web Services.
+Welcome to the HPAC Nagios AWS Alerts Installation Guide.  This file contains all of the documentation for adding RDS Nagios Alerts for HPAC Amazon Web Services.
 
 ###Nagios Alerts for AWS Service Description
 
 The following procedures need to be followed to add AWS CloudWatch alarms that will send sns alerts to Nagios that will notify the HUIT Operation Center personnel of a possible issue with the HPAC Drupal Web sites.
 
-###Account
+###Amazaon Web Services Account Name
 cloudhacks
 
 ###Application
-HPAC Drupal
+HPAC Drupal Websites currently hosted at Amazon Web Services.  The following site RDS installation will be monitored.
+
+http://www.harvard.edu
+http://campaign.harvard.edu
+http://news.harvard.edu
 
 
-###AWS Service
+###Amazon Web Service
 RDS - Managed Relational Database Service
-
-
 
 ###AWS Event
 RDS - Read Latency
@@ -33,7 +35,6 @@ For sending alarm notifications to production Nagios (as of Summer 2014) a Topic
 ```
 https://nagios.fas.harvard.edu/aws_sns_receiver.php
 ```
-
 Note: At this time a new Subscription to Nagios needs to be manually confirmed. This will no longer be necessary after the HUIT upgrade to Nagios 4 later in 2014, because that will allow auto-confirmation of subscriptions.
 
 ###Creating RDS Read Latency Alarm
@@ -41,6 +42,7 @@ Note: At this time a new Subscription to Nagios needs to be manually confirmed. 
 In AWS Console, go to the CloudWatch Services.
 https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
 
+![CloudWatch Alarms](https://github.com/stephenmartino/AWS-LoggingAndMonitoring/blob/master/documentation/images/metricdefinition.tiff)
 ```
 To set up monitoring of database (RDS) latency, click "RDS" in the left hand pane under the "Metrics" Category.
 ```

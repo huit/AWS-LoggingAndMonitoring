@@ -45,7 +45,7 @@ https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
 To set up monitoring of database (RDS) latency, click "RDS" in the left hand pane under the "Metrics" Category.
 ```
 
-####Metric Searching
+###Metric Searching
 Search either for the RDS database name, or simply search for the metric. For example, searching for "latency" will return read and write latency for all RDS instances.
 
 ```
@@ -72,12 +72,57 @@ Example: cloudhacks|HPAC Drupal|RDS|smartinodbinstance|This is only an example a
 ```
 
 Field: Whenever
-#* database name
+Convention: Name of Metric Chosen
+Example: ReadLatency
 
+Field: is
+Convention: >= OR <= OR > OR <
+Example: >=
 
+Convention: Numeric value that corresponds to the Alarm Preview Graph
+Example: .003
+
+Field: for
+Convention: Numeric value that corresponds to the number of consecutive periods before triggering an alarm.
+Example: 1
+```
 
 ###Actions
+Click on the +Notifications button to create the following Notifications.
 
+####State is OK Notification
+
+```
+Field: Whenever this alarm
+Convention: State is OK
+Example: State is OK
+
+Field: Send notification to
+Convention: Name of Nagios List
+Example: HUIT_Nagios_Critical
+
+Field: Email list
+Convention: email address is submitted by AWS for the subscription
+Example: nagios-dev@fas.harvard.edu
+
+
+####State is ALARM Notification
+
+```
+Field: Whenever this alarm
+Convention: State is ALARM
+Example: State is ALARM
+
+Field: Send notification to
+Convention: Name of Nagios List
+Example: HUIT_Nagios_Critical
+
+Field: Email list
+Convention: email address is submitted by AWS for the subscription
+Example: nagios-dev@fas.harvard.edu
+```
+
+###Alarm Preview
 
 #* the name of the metric being watched for this alarm
 

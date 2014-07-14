@@ -38,33 +38,46 @@ Note: At this time a new Subscription to Nagios needs to be manually confirmed. 
 
 ###Creating RDS Read Latency Alarm
 
-```
 In AWS Console, go to the CloudWatch Services.
-```
-URL: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
-
+https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
 
 ```
-To set up monitoring of database (RDS) latency, click "RDS Metrics".
-```
-Click [URL: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#metrics: Browse Metrics]
-
-
-
-To set up monitoring of database (RDS) latency, click "RDS Metrics".
+To set up monitoring of database (RDS) latency, click "RDS" in the left hand pane under the "Metrics" Category.
 ```
 
-# Search either for the RDS database name, or simply search for the metric. For example, searching for "latency" will return read and write latency for all RDS instances.
+####Metric Searching
+Search either for the RDS database name, or simply search for the metric. For example, searching for "latency" will return read and write latency for all RDS instances.
 
-# Click the checkbox for the metric for which you want to create the alarm.
+```
+To set up monitoring of your database (RDS) "read latency", click once in the Search Metrics box and enter "latency" and click "Browse Metrics".
+```
 
-# At the bottom right of the graph panel that appears, click "Create Alarm". Note that the graph shows previous data for this metric which you can use to determine the threshold for this new alarm.
+# Click the checkbox to the left of your RDS Instance for "read latency" which you want to create the alarm.
 
-# Give the new alarm a name that indicates as much information as possible, optimally including:
+At the bottom right of the graph panel that appears, click "Create Alarm". Note that the graph shows previous data for this metric which you can use to determine the threshold for this new alarm.
 
-#* stack name
+### Alarm Threshold
 
+Give the new alarm a name that indicates as much information as possible, optimally including:
+
+```
+Field: Name(must be unique):  Application Name 
+Convention: Application Name + Instance Type + Alarm Type
+Example: HPAC Drupal RDS Read Latency Alarm
+```
+```
+Field: Description
+Convention: AWS Account Name|Customer Application|Amazon Service|Instance Name|Additional Notes and Comments 
+Example: cloudhacks|HPAC Drupal|RDS|smartinodbinstance|This is only an example alarm by Stefan and Steve M.
+```
+
+Field: Whenever
 #* database name
+
+
+
+###Actions
+
 
 #* the name of the metric being watched for this alarm
 
@@ -75,3 +88,22 @@ To set up monitoring of database (RDS) latency, click "RDS Metrics".
 ## Choose the notification list ("Topic") from the pop-up list for the ALARM state
 
 ## Click "+Notification" and add the same notification list for "State is OK"
+
+
+==== Sending Alarm Events via Nagios ====
+
+In order for Nagios to be able to receive and process an alarm message from AWS SNS, a standard Nagios Host and Service configuration must each be created.
+
+Nagios uses a Host definition as the base of all related Service attributes. For example a conventional server would be defined as a single Host, and the Services like disk usage, Apache, memory use, etc. would all be associated to the Host.
+
+In AWS we no longer focus on the server as the "host" so we have to change the way we use the Nagios Host object.
+
+We use the Description field of an AWS Alarm to associate that Alarm to the proper "Host" in Nagios. Because a particular metric (for example RDS ReadLatency) that makes up an Alarm will have its own name, the Nagios name of the Host is coded in the Alarm Description as bar-delimited data:
+AWS account name|Host name for Nagios|Amazon service|instance name|additional notes and comments
+
+For example, this is the Description for an Alarm on the ReadLatency metric:
+cloudhacks|HPAC Drupal|RDS|smartinodbinstance|This is only an example alarm by Stefan and Steve M. - nothing serious
+
+When Nagios accepts the Alarm message from SNS, this Description data will be used to change the Nagios state for the "Host" named 'HPAC Drupal'.
+
+As we further develop Nagios alerting for AWS applications, we will be using the additional data fields in the Description to allow routing of the alert notifications.

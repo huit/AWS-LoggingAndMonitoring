@@ -169,6 +169,8 @@ When Nagios accepts the Alarm message from SNS, this Description data will be us
 
 As we further develop Nagios alerting for AWS applications, we will be using the additional data fields in the Description to allow routing of the alert notifications.
 
+###hostgroups.cfg additions
+
 ```
 ================== hostgroups.cfg ========================
 
@@ -187,6 +189,7 @@ define hostgroup {
 
 ```
 
+###services.cfg additions
 ```
 ================ services.cfg ==============================
 
@@ -240,6 +243,7 @@ define serviceextinfo {
 
 ```
 
+###hosts.cfg additions
 ```
 ========================= hosts.cfg ===============================
 
@@ -273,7 +277,7 @@ define host {
 }
 
 ```
-
+###contacts.cfg additions
 ```
 ===================== contacts.cfg =================================
 
@@ -305,6 +309,7 @@ define contact {
 }
 
 ```
+###contactgroups.cfg additions
 ```
 ================== contactgroups.cfg ====================================
 

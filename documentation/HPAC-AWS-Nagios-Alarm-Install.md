@@ -36,10 +36,11 @@ For sending alarm notifications to production Nagios (as of Summer 2014) a Topic
 
 Note: At this time a new Subscription to Nagios needs to be manually confirmed. This will no longer be necessary after the HUIT upgrade to Nagios 4 later in 2014, because that will allow auto-confirmation of subscriptions.
 
-```
 ###Creating RDS Read Latency Alarm
+
 ```
 In AWS Console, go to the CloudWatch Services.
+```
 URL: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
 
 

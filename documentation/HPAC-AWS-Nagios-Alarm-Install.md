@@ -52,7 +52,7 @@ Search either for the RDS database name, or simply search for the metric. For ex
 To set up monitoring of your database (RDS) "read latency", click once in the Search Metrics box and enter "latency" and click "Browse Metrics".
 ```
 
-# Click the checkbox to the left of your RDS Instance for "read latency" which you want to create the alarm.
+Click the checkbox to the left of your RDS Instance for "read latency" which you want to create the alarm.
 
 At the bottom right of the graph panel that appears, click "Create Alarm". Note that the graph shows previous data for this metric which you can use to determine the threshold for this new alarm.
 
@@ -70,18 +70,20 @@ Field: Description
 Convention: AWS Account Name|Customer Application|Amazon Service|Instance Name|Additional Notes and Comments 
 Example: cloudhacks|HPAC Drupal|RDS|smartinodbinstance|This is only an example alarm by Stefan and Steve M.
 ```
-
+```
 Field: Whenever
 Convention: Name of Metric Chosen
 Example: ReadLatency
-
+```
+```
 Field: is
 Convention: >= OR <= OR > OR <
 Example: >=
 
 Convention: Numeric value that corresponds to the Alarm Preview Graph
 Example: .003
-
+```
+```
 Field: for
 Convention: Numeric value that corresponds to the number of consecutive periods before triggering an alarm.
 Example: 1
@@ -90,7 +92,7 @@ Example: 1
 ###Actions
 Click on the +Notifications button to create the following Notifications.
 
-####State is OK Notification
+###State is OK Notification
 
 ```
 Field: Whenever this alarm
@@ -104,7 +106,7 @@ Example: HUIT_Nagios_Critical
 Field: Email list
 Convention: email address is submitted by AWS for the subscription
 Example: nagios-dev@fas.harvard.edu
-
+```
 
 ####State is ALARM Notification
 

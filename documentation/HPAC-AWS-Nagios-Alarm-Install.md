@@ -65,7 +65,7 @@ At the bottom right of the graph panel that appears, click "Create Alarm". Note 
 
 The following screen appears:
 
-![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Alarm-Settings.png)
+![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Alarm-Full-Page.png)
 
 ### Alarm Threshold
 

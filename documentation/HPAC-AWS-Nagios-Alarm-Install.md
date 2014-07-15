@@ -41,6 +41,7 @@ Note: At this time a new Subscription to Nagios needs to be manually confirmed. 
 
 In AWS Console, go to the CloudWatch Services.
 https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
+
 The follow screen appears:
 
 ![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/metricdefinition.png)
@@ -50,7 +51,9 @@ To set up monitoring of database (RDS) latency, click "RDS" in the left hand pan
 
 ###Metric Searching
 Search either for the RDS database name, or simply search for the metric. For example, searching for "latency" will return read and write latency for all RDS instances.
+
 The following screen appears:
+
 ![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/RDS-Metrics.png)
 ```
 To set up monitoring of your database (RDS) "read latency", click once in the Search Metrics box and enter "latency" and click "Browse Metrics".
@@ -59,6 +62,10 @@ To set up monitoring of your database (RDS) "read latency", click once in the Se
 Click the checkbox to the left of your RDS Instance for "read latency" which you want to create the alarm.
 
 At the bottom right of the graph panel that appears, click "Create Alarm". Note that the graph shows previous data for this metric which you can use to determine the threshold for this new alarm.
+
+The following screen appears:
+
+![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Alarm-Settings.png)
 
 ### Alarm Threshold
 

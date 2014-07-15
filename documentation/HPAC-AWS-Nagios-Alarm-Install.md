@@ -10,13 +10,16 @@ The following procedures need to be followed to add AWS CloudWatch alarms that w
  
 * [Team Members](#team-members)
 * [Customer Information](#customer-information)
+* [Creating RDS Read Latency Alarms] (#read-latency)
+* [Metric Searching](#metric-searching)
+* [Alarm Threshold](#alarm-threshold)
  
 # <a name="team-members"></a>Team Members
 * "Robert Parrott" <parrott@g.harvard.edu>
 * "Stephen Martino" <stephen_martino@harvard.edu>
 * "Ethan Kiczek" <ethan_kiczek@harvard.edu>
 * "Rob Ruma" <robert_ruma@harvard.edu>
-* "Mohamed Nabile ElBaz"  <moh_elbaz@harvard.edu>
+* "Mohamed Nabile ElBaz" <moh_elbaz@harvard.edu>
 * "Stefan Wuensch" <wuensch@fas.harvard.edu>
 * "Jim Hicks" <james_hicks@harvard.edu>
 * "Gary Noyes" <gary_noyes@harvard.edu>
@@ -64,7 +67,7 @@ https://nagios.fas.harvard.edu/aws_sns_receiver.php
 ```
 Note: At this time a new Subscription to Nagios needs to be manually confirmed. This will no longer be necessary after the HUIT upgrade to Nagios 4 later in 2014, because that will allow auto-confirmation of subscriptions.
 
-###Creating RDS Read Latency Alarm
+# <a name="read-latency"></a>Creating RDS Read Latency Alarms
 
 In AWS Console, go to the CloudWatch Services.
 https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
@@ -76,7 +79,8 @@ The follow screen appears:
 To set up monitoring of database (RDS) latency, click "RDS" in the left hand pane under the "Metrics" Category.
 ```
 
-###Metric Searching
+# <a name="metric-searching"></a>Metric Searching
+
 Search either for the RDS database name, or simply search for the metric. For example, searching for "latency" will return read and write latency for all RDS instances.
 
 The following screen appears:
@@ -94,8 +98,7 @@ The following screen appears:
 
 ![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Alarm-Full-Page.png)
 
-### Alarm Threshold
-
+# <a name="alarm-threshold"></a>Alarm Threshold
 
 ![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Alarm-Threshold.png)
 

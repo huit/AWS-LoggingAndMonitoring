@@ -28,7 +28,6 @@ The following procedures need to be followed to add AWS CloudWatch alarms that w
 * "George Milton Mundanchery" <george_milton@harvard.edu>
 
 # <a name="customer-information"></a>HUIT Customer Information
-# HUIT Customer Information
 
 ###Customer Name
 

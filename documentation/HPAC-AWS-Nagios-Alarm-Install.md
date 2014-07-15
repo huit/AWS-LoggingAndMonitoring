@@ -69,6 +69,9 @@ The following screen appears:
 
 ### Alarm Threshold
 
+
+![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Alarm-Threshold.png)
+
 Give the new alarm a name that indicates as much information as possible, optimally including:
 
 ```
@@ -103,6 +106,9 @@ Example: 1
 ###Actions
 Click on the +Notifications button to create the following Notifications.
 
+
+![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Actions.png)
+
 ###State is OK Notification
 
 ```
@@ -136,6 +142,8 @@ Example: nagios-dev@fas.harvard.edu
 ```
 
 ###Alarm Preview
+
+![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Alarm-Preview.png)
 
 ```
 Field: Alarm Preview

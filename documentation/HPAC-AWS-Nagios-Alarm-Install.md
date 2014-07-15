@@ -9,11 +9,33 @@ The following procedures need to be followed to add AWS CloudWatch alarms that w
 # Table of Contents
  
 * [Team Members](#team-members)
+* [Customer Information](#customer-information)
  
 # <a name="team-members"></a>Team Members
-* "J. Jesus. P. Aguinaga" <admin@listforks.com>
+* "Robert Parrott" <parrott@g.harvard.edu>
+* "Stephen Martino" <stephen_martino@harvard.edu>
+* "Ethan Kiczek" <ethan_kiczek@harvard.edu>
+* "Rob Ruma" <robert_ruma@harvard.edu>
+* "Mohamed Nabile ElBaz"  <moh_elbaz@harvard.edu>
+* "Stefan Wuensch" <wuensch@fas.harvard.edu>
+* "Jim Hicks" <james_hicks@harvard.edu>
+* "Gary Noyes" <gary_noyes@harvard.edu>
+* "Sean McCarty" <sean_mccarty@harvard.edu>
+* "Brian Broady" <brian_broady@harvard.edu>
+* "Ken Perry" <ken_perry@harvard.edu>
+* "Joel Fanton" <joel_fanton@harvard.edu>
+* "Kiran B. Mhatre" <kiran_mhatre@harvard.edu>
+* "George Milton Mundanchery" <george_milton@harvard.edu>
+
+# <a name="customer-information"></a>HUIT Customer Information
+# HUIT Customer Information
+
+###Customer Name
+
+Harvard Public Affairs and Communications
 
 ###Amazaon Web Services Account Name
+
 cloudhacks
 
 ###Application

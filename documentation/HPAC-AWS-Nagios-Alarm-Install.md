@@ -6,6 +6,12 @@ Welcome to the HPAC Nagios AWS Alerts Installation Guide.  This file contains al
 ###Nagios Alerts for AWS Service Description
 
 The following procedures need to be followed to add AWS CloudWatch alarms that will send sns alerts to Nagios that will notify the HUIT Operation Center personnel of a possible issue with the HPAC Drupal Web sites.
+# Table of Contents
+ 
+* [Team Members](#team-members)
+ 
+# <a name="team-members"></a>Team Members
+* "J. Jesus. P. Aguinaga" <admin@listforks.com>
 
 ###Amazaon Web Services Account Name
 cloudhacks

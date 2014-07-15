@@ -104,8 +104,8 @@ Example: 1
 ```
 
 ###Actions
-Click on the +Notifications button to create the following Notifications.
 
+Click on the +Notifications button to create the following Notifications.
 
 ![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Actions.png)
 

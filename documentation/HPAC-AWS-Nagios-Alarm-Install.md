@@ -13,7 +13,13 @@ The following procedures need to be followed to add AWS CloudWatch alarms that w
 * [Creating RDS Read Latency Alarms] (#read-latency)
 * [Metric Searching](#metric-searching)
 * [Alarm Threshold](#alarm-threshold)
- 
+* [Alarm Actions] (#alarm-actions)
+* [OK Notification](#ok-notification)
+* [Alarm Notification](#alarm-notification)
+* [Alarm Preview](#alarm-preview)
+* [Sending Alarm Events to Nagios](#alarm-send)
+
+
 # <a name="team-members"></a>Team Members
 * "Robert Parrott" <parrott@g.harvard.edu>
 * "Stephen Martino" <stephen_martino@harvard.edu>
@@ -133,13 +139,13 @@ Convention: Numeric value that corresponds to the number of consecutive periods 
 Example: 1
 ```
 
-###Actions
+# <a name="alarm-actions"></a>Alarm Actions
 
 Click on the +Notifications button to create the following Notifications.
 
 ![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Actions.png)
 
-###State is OK Notification
+# <a name="ok-notification"></a>OK Notification
 
 ```
 Field: Whenever this alarm
@@ -155,7 +161,7 @@ Convention: email address is submitted by AWS for the subscription
 Example: nagios-dev@fas.harvard.edu
 ```
 
-####State is ALARM Notification
+# <a name="alarm-notification"></a>Alarm Notification
 
 ```
 Field: Whenever this alarm
@@ -171,7 +177,7 @@ Convention: email address is submitted by AWS for the subscription
 Example: nagios-dev@fas.harvard.edu
 ```
 
-###Alarm Preview
+# <a name="alarm-preview"></a>Alarm Preview
 
 ![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/Alarm-Preview.png)
 
@@ -200,7 +206,7 @@ Field: Statistic
 Convention: Minimum OR  Maximum OR Sum OR Average OR Data Samples
 Example: Average
 ```
-###Sending Alarm Events via Nagios
+# <a name="alarm-send"></a>Sending Alarm Events to Nagios
 
 In order for Nagios to be able to receive and process an alarm message from AWS SNS, a standard Nagios Host and Service configuration must each be created.
 

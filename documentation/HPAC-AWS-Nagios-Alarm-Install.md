@@ -42,7 +42,7 @@ Note: At this time a new Subscription to Nagios needs to be manually confirmed. 
 In AWS Console, go to the CloudWatch Services.
 https://console.aws.amazon.com/cloudwatch/home?region=us-east-1
 
-![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/metricdefinition.tiff)
+![CloudWatch Alarms](https://raw.githubusercontent.com/stephenmartino/AWS-LoggingAndMonitoring/master/documentation/images/metricdefinition.tiff?raw=true)
 ```
 To set up monitoring of database (RDS) latency, click "RDS" in the left hand pane under the "Metrics" Category.
 ```

@@ -1,0 +1,108 @@
+// AWS CloudFormation template to create:
+// 1) RDS ReadLatency alarm
+// 2) RDS WriteLatency alarm
+// 3) SNS Topic with Nagios HTTPS and email list endpoints
+// by Stefan Wuensch and Steve Martino and Rob Parrott and Rob Ruma, 2014-07-16
+
+"Parameters" : {
+	"NagiosSNSprodA" : {
+		"Default": "https://nagios.fas.harvard.edu/aws_sns_receiver.php",
+		"Description": "Nagios Prod SNS HTTPS endpoint",
+		"Type": "String"
+	},
+	"AWS-Support-List" : {
+		"Default": "aws-support@mailman.fas.harvard.edu",
+		"Description": "AWS email list for HUIT internal support issues",
+		"Type": "String"
+	},
+	"CriticalAlarmTopic" : {
+		"Default": "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_Critical",
+		"Description": "SNS Topic for Critical Alerts",
+		"Type": "String"
+	},
+	"DBInstance" : {
+		"Description" : "The identifier of the RDS instance",
+		"Type" : "String"
+	}
+}
+
+"Resources" : {
+	"HPACreadLatency" : {
+	   "Type" : "AWS::CloudWatch::Alarm",
+	   "Properties" : {
+	      "ActionsEnabled" : true,
+	      "AlarmActions" : [ 
+			 { "Ref" : "CriticalAlarmTopic" }
+		],
+	      "AlarmDescription" : "Database read latency on RDS instance",
+	      "AlarmName" : "AWS RDS ReadLatency",
+	      "ComparisonOperator" : "GreaterThanOrEqualToThreshold",
+	      "Dimensions" : [ 
+			{
+			    "Name": "DBInstanceIdentifier", 
+			    "Value": { "Ref" : "DBInstance" }
+			}
+	      ],
+	      "EvaluationPeriods" : 1,
+	      "InsufficientDataActions" : [
+			 { "Ref" : "CriticalAlarmTopic" }
+	      ],
+	      "MetricName" : "ReadLatency",
+	      "Namespace" : "AWS/RDS",
+	      "OKActions" : [ 
+			 { "Ref" : "CriticalAlarmTopic" }
+	      ],
+	      "Period" : 300,
+	      "Statistic" : "Average",
+	      "Threshold" : 0.5,
+	   }
+	}
+
+	"HPACwriteLatency" : {
+	   "Type" : "AWS::CloudWatch::Alarm",
+	   "Properties" : {
+	      "ActionsEnabled" : true,
+	      "AlarmActions" : [ 
+			 { "Ref" : "CriticalAlarmTopic" }
+		],
+	      "AlarmDescription" : "Database write latency on RDS instance",
+	      "AlarmName" : "AWS RDS WriteLatency",
+	      "ComparisonOperator" : "GreaterThanOrEqualToThreshold",
+	      "Dimensions" : [ 
+			{
+			    "Name": "DBInstanceIdentifier", 
+			    "Value": { "Ref" : "DBName" }
+			}
+	      ],
+	      "EvaluationPeriods" : 1,
+	      "InsufficientDataActions" : [
+			 { "Ref" : "CriticalAlarmTopic" }
+	      ],
+	      "MetricName" : "WriteLatency",
+	      "Namespace" : "AWS/RDS",
+	      "OKActions" : [ 
+			 { "Ref" : "CriticalAlarmTopic" }
+	      ],
+	      "Period" : 300,
+	      "Statistic" : "Average",
+	      "Threshold" : 0.5,
+	   }
+	}
+}
+
+"HUIT_Nagios_Critical" : {
+   "Type" : "AWS::SNS::Topic",
+   "Properties" : {
+      "Subscription" : [
+         { "Endpoint" : 
+         	{ "Ref" : "NagiosSNSprodA" }, 
+         	"Protocol" : "https" 
+         },
+         { "Endpoint" : 
+         	{ "Ref" : "AWS-Support-List" }, 
+         	"Protocol" : "email" 
+         }
+      ],
+   }
+}
+

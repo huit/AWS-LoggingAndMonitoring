@@ -15,6 +15,7 @@
 		"Description": "AWS email list for HUIT internal support issues",
 		"Type": "String"
 	},
+
 	"CriticalAlarmTopic" : {
 		"Default": "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_Critical",
 		"Description": "SNS Topic for Critical Alerts",
@@ -27,6 +28,158 @@
 }
 
 "Resources" : {
+
+ "ELBLatencyAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Alert id ELB Latency over 1 sec on average for 5 minutes",
+        "Namespace": "AWS/ELB",
+        "MetricName": "Latency",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": "1",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "LoadBalancerName",
+            "Value": { "Ref": "ElasticLoadBalancer" }
+        }]
+      }
+    },
+
+    "ELB5XXAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Alert on 5XX errors over 1 min",
+        "Namespace": "AWS/ELB",
+        "MetricName": "HTTPCode_ELB_5XX",
+        "Statistic": "Sum",
+        "Period": "60",
+        "Threshold": "10",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "1",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "LoadBalancerName",
+            "Value": { "Ref": "ElasticLoadBalancer" }
+        }]
+      }
+    },
+
+    "ELB4XXAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Alert on 4XX errors over 1 min",
+        "Namespace": "AWS/ELB",
+        "MetricName": "HTTPCode_ELB_4XX",
+        "Statistic": "Sum",
+        "Period": "60",
+        "Threshold": "10",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "1",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "LoadBalancerName",
+            "Value": { "Ref": "ElasticLoadBalancer" }
+        }]
+      }
+    }, 
+
+
+    "DBCPUHighAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " CPU > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "CPULimit" ]}, "% for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "CPUUtilization",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "CPULimit" ]},
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+"DBFreeStorageSpaceAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " storage space <= ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "FreeStorageSpaceLimit" ]}, " for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "FreeStorageSpace",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "FreeStorageSpaceLimit" ]},
+        "ComparisonOperator": "LessThanOrEqualToThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+
+    "DBReadIOPSHighAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " WriteIOPs > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "ReadIOPSLimit" ]}, " for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "ReadIOPS",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "ReadIOPSLimit" ]},
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+    "DBReadLatencyHighAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " WriteIOPs > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "ReadIOPSLimit" ]}, " for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "ReadLatency",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "ReadLatencyLimit" ]},
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+
+    "WriteIOPSHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " WriteIOPs > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "WriteIOPSLimit" ]}, " for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "WriteIOPS",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "WriteIOPSLimit" ]},
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+
 	"HPACreadLatency" : {
 	   "Type" : "AWS::CloudWatch::Alarm",
 	   "Properties" : {
@@ -56,7 +209,7 @@
 	      "Statistic" : "Average",
 	      "Threshold" : 0.5,
 	   }
-	}
+	},
 
 	"HPACwriteLatency" : {
 	   "Type" : "AWS::CloudWatch::Alarm",
@@ -90,19 +243,71 @@
 	}
 }
 
-"HUIT_Nagios_Critical" : {
+"HUITNagiosCritical" : {
    "Type" : "AWS::SNS::Topic",
    "Properties" : {
       "Subscription" : [
-         { "Endpoint" : 
-         	{ "Ref" : "NagiosSNSprodA" }, 
-         	"Protocol" : "https" 
-         },
-         { "Endpoint" : 
-         	{ "Ref" : "AWS-Support-List" }, 
-         	"Protocol" : "email" 
-         }
-      ],
+         { "Endpoint" :
+          { "Ref" : "NagiosSNSprodA" },
+          "Protocol" : "https"
+         },   
+         { "Endpoint" :
+          { "Ref" : "AWSSupportList" },
+          "Protocol" : "email"
+         }    
+      ],   
+      "TopicName" : "HUIT_Nagios_Critical"
+   }
+},
+
+"HUITNagiosHigh" : {
+   "Type" : "AWS::SNS::Topic",
+   "Properties" : {
+      "Subscription" : [
+         { "Endpoint" :
+          { "Ref" : "NagiosSNSprodA" },
+          "Protocol" : "https"
+         },   
+         { "Endpoint" :
+          { "Ref" : "AWSSupportList" },
+          "Protocol" : "email"
+         }    
+      ],   
+      "TopicName" : "HUIT_Nagios_High"
+   }
+},
+
+"HUITNagiosInformational" : {
+   "Type" : "AWS::SNS::Topic",
+   "Properties" : {
+      "Subscription" : [
+         { "Endpoint" :
+          { "Ref" : "NagiosSNSprodA" },
+          "Protocol" : "https"
+         },   
+         { "Endpoint" :
+          { "Ref" : "AWSSupportList" },
+          "Protocol" : "email"
+         }    
+      ],   
+      "TopicName" : "HUIT_Nagios_Informational"
    }
 }
+
+"Outputs" : {
+
+    "ELBName" : {
+      "Value" : { "Ref" : "ElasticLoadBalancer" },
+      "Description" : "Drupal Website Load Balancer Name"
+    },
+
+    "DBName" : {
+      "Value" : { "Ref" : "MasterDB" },
+      "Description" : "Drupal Website DB Name"
+    },
+
+    "SNSTopic" : {
+      "Value" : { "Ref" : "HUITNagiosCritical" },
+      "Description" : "Drupal Website SNS Topic"
+    },
 

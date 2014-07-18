@@ -1,16 +1,25 @@
-// AWS CloudFormation template to create:
-// 1) RDS ReadLatency alarm
-// 2) RDS WriteLatency alarm
-// 3) SNS Topic with Nagios HTTPS and email list endpoints
-// by Stefan Wuensch and Steve Martino and Rob Parrott and Rob Ruma, 2014-07-16
+{
 
 "Parameters" : {
+
+	"AlreadyRunningStackName" : {
+		"Description" : "The name of the stack onto which you want to add these alarms and topics",
+		"Type" : "String"
+	},
+
 	"NagiosSNSprodA" : {
 		"Default": "https://nagios.fas.harvard.edu/aws_sns_receiver.php",
-		"Description": "Nagios Prod SNS HTTPS endpoint",
+		"Description": "Nagios Primary Prod SNS HTTPS endpoint",
 		"Type": "String"
 	},
-	"AWS-Support-List" : {
+
+	"NagiosSNSprodB" : {
+		"Default": "https://palantir2.unix.fas.harvard.edu/aws_sns_receiver.php",
+		"Description": "Nagios Alternate Prod SNS HTTPS endpoint",
+		"Type": "String"
+	},
+
+	"AWSSupportList" : {
 		"Default": "aws-support@mailman.fas.harvard.edu",
 		"Description": "AWS email list for HUIT internal support issues",
 		"Type": "String"
@@ -21,53 +30,66 @@
 		"Description": "SNS Topic for Critical Alerts",
 		"Type": "String"
 	},
-	"DBInstance" : {
-		"Description" : "The identifier of the RDS instance",
-		"Type" : "String"
+
+	"HighAlarmTopic" : {
+		"Default": "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_High",
+		"Description": "SNS Topic for High Alerts",
+		"Type": "String"
+	},
+
+	"InformationalAlarmTopic" : {
+		"Default": "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_Informational",
+		"Description": "SNS Topic for Informational Alerts",
+		"Type": "String"
 	}
-}
+
+//	"DBInstance" : {
+//		"Description" : "The identifier of the RDS instance",
+//		"Type" : "String"
+//	}
+},
 
 "Resources" : {
 
- "ELBLatencyAlarm": {
+  "ELBLatencyAlarm": {
       "Type": "AWS::CloudWatch::Alarm",
       "Properties": {
-        "AlarmDescription": "Alert id ELB Latency over 1 sec on average for 5 minutes",
-        "Namespace": "AWS/ELB",
-        "MetricName": "Latency",
-        "Statistic": "Average",
-        "Period": "60",
-        "Threshold": "1",
-        "ComparisonOperator": "GreaterThanThreshold",
-        "EvaluationPeriods": "5",
-        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
-        "Dimensions": [{
-            "Name": "LoadBalancerName",
-            "Value": { "Ref": "ElasticLoadBalancer" }
-        }]
+	"AlarmDescription": "Alert id ELB Latency over 1 sec on average for 5 minutes",
+	"Namespace": "AWS/ELB",
+	"MetricName": "Latency",
+	"Statistic": "Average",
+	"Period": "60",
+	"Threshold": "1",
+	"ComparisonOperator": "GreaterThanThreshold",
+	"EvaluationPeriods": "5",
+	"AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+	"Dimensions": [{
+		"Name": "LoadBalancerName",
+		"Value": { "Ref": "ElasticLoadBalancer" }
+	}]
       }
     },
 
-    "ELB5XXAlarm": {
+   "ELB5XXAlarm": {
       "Type": "AWS::CloudWatch::Alarm",
       "Properties": {
-        "AlarmDescription": "Alert on 5XX errors over 1 min",
-        "Namespace": "AWS/ELB",
-        "MetricName": "HTTPCode_ELB_5XX",
-        "Statistic": "Sum",
-        "Period": "60",
-        "Threshold": "10",
-        "ComparisonOperator": "GreaterThanThreshold",
-        "EvaluationPeriods": "1",
-        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
-        "Dimensions": [{
-            "Name": "LoadBalancerName",
-            "Value": { "Ref": "ElasticLoadBalancer" }
-        }]
+	"AlarmDescription": "Alert on 5XX errors over 1 min",
+	"Namespace": "AWS/ELB",
+	"MetricName": "HTTPCode_ELB_5XX",
+	"Statistic": "Sum",
+	"Period": "60",
+	"Threshold": "10",
+	"ComparisonOperator": "GreaterThanThreshold",
+	"EvaluationPeriods": "1",
+	"AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+	"Dimensions": [{
+		"Name": "LoadBalancerName",
+		"Value": { "Ref": "ElasticLoadBalancer" }
+	}]
       }
     },
 
-    "ELB4XXAlarm": {
+   "ELB4XXAlarm": {
       "Type": "AWS::CloudWatch::Alarm",
       "Properties": {
         "AlarmDescription": "Alert on 4XX errors over 1 min",
@@ -87,7 +109,7 @@
     }, 
 
 
-    "DBCPUHighAlarm": {
+  "DBCPUHighAlarm": {
       "Type": "AWS::CloudWatch::Alarm",
       "Properties": {
         "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " CPU > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "CPULimit" ]}, "% for 5 minutes" ]]},
@@ -105,7 +127,9 @@
         }]
       }
     },
-"DBFreeStorageSpaceAlarm": {
+
+
+ "DBFreeStorageSpaceAlarm": {
       "Type": "AWS::CloudWatch::Alarm",
       "Properties": {
         "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " storage space <= ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "FreeStorageSpaceLimit" ]}, " for 5 minutes" ]]},
@@ -207,7 +231,7 @@
 	      ],
 	      "Period" : 300,
 	      "Statistic" : "Average",
-	      "Threshold" : 0.5,
+	      "Threshold" : 0.5
 	   }
 	},
 
@@ -238,76 +262,93 @@
 	      ],
 	      "Period" : 300,
 	      "Statistic" : "Average",
-	      "Threshold" : 0.5,
+	      "Threshold" : 0.5
+	   }
+	},
+
+
+	"HUITNagiosCritical" : {
+	   "Type" : "AWS::SNS::Topic",
+	   "Properties" : {
+	      "Subscription" : [
+		 { "Endpoint" :
+		  { "Ref" : "NagiosSNSprodA" },
+		  "Protocol" : "https"
+		 },   
+		 { "Endpoint" :
+		  { "Ref" : "NagiosSNSprodB" },
+		  "Protocol" : "https"
+		 },   
+		 { "Endpoint" :
+		  { "Ref" : "AWSSupportList" },
+		  "Protocol" : "email"
+		 }    
+	      ],   
+	      "TopicName" : "HUIT_Nagios_Critical"
+	   }
+	},
+
+	"HUITNagiosHigh" : {
+	   "Type" : "AWS::SNS::Topic",
+	   "Properties" : {
+	      "Subscription" : [
+		 { "Endpoint" :
+		  { "Ref" : "NagiosSNSprodA" },
+		  "Protocol" : "https"
+		 },   
+		 { "Endpoint" :
+		  { "Ref" : "NagiosSNSprodB" },
+		  "Protocol" : "https"
+		 },   
+		 { "Endpoint" :
+		  { "Ref" : "AWSSupportList" },
+		  "Protocol" : "email"
+		 }    
+	      ],   
+	      "TopicName" : "HUIT_Nagios_High"
+	   }
+	},
+
+	"HUITNagiosInformational" : {
+	   "Type" : "AWS::SNS::Topic",
+	   "Properties" : {
+	      "Subscription" : [
+		 { "Endpoint" :
+		  { "Ref" : "NagiosSNSprodA" },
+		  "Protocol" : "https"
+		 },   
+		 { "Endpoint" :
+		  { "Ref" : "NagiosSNSprodB" },
+		  "Protocol" : "https"
+		 },   
+		 { "Endpoint" :
+		  { "Ref" : "AWSSupportList" },
+		  "Protocol" : "email"
+		 }    
+	      ],   
+	      "TopicName" : "HUIT_Nagios_Informational"
 	   }
 	}
-}
 
-"HUITNagiosCritical" : {
-   "Type" : "AWS::SNS::Topic",
-   "Properties" : {
-      "Subscription" : [
-         { "Endpoint" :
-          { "Ref" : "NagiosSNSprodA" },
-          "Protocol" : "https"
-         },   
-         { "Endpoint" :
-          { "Ref" : "AWSSupportList" },
-          "Protocol" : "email"
-         }    
-      ],   
-      "TopicName" : "HUIT_Nagios_Critical"
-   }
 },
 
-"HUITNagiosHigh" : {
-   "Type" : "AWS::SNS::Topic",
-   "Properties" : {
-      "Subscription" : [
-         { "Endpoint" :
-          { "Ref" : "NagiosSNSprodA" },
-          "Protocol" : "https"
-         },   
-         { "Endpoint" :
-          { "Ref" : "AWSSupportList" },
-          "Protocol" : "email"
-         }    
-      ],   
-      "TopicName" : "HUIT_Nagios_High"
-   }
-},
-
-"HUITNagiosInformational" : {
-   "Type" : "AWS::SNS::Topic",
-   "Properties" : {
-      "Subscription" : [
-         { "Endpoint" :
-          { "Ref" : "NagiosSNSprodA" },
-          "Protocol" : "https"
-         },   
-         { "Endpoint" :
-          { "Ref" : "AWSSupportList" },
-          "Protocol" : "email"
-         }    
-      ],   
-      "TopicName" : "HUIT_Nagios_Informational"
-   }
-}
 
 "Outputs" : {
 
-    "ELBName" : {
-      "Value" : { "Ref" : "ElasticLoadBalancer" },
-      "Description" : "Drupal Website Load Balancer Name"
-    },
-
-    "DBName" : {
-      "Value" : { "Ref" : "MasterDB" },
-      "Description" : "Drupal Website DB Name"
-    },
-
-    "SNSTopic" : {
+    "SNSTopicNagiosCritical" : {
       "Value" : { "Ref" : "HUITNagiosCritical" },
-      "Description" : "Drupal Website SNS Topic"
+      "Description" : "Drupal Website SNS Topic Nagios Critical"
     },
 
+    "SNSTopicNagiosHigh" : {
+      "Value" : { "Ref" : "HUITNagiosHigh" },
+      "Description" : "Drupal Website SNS Topic Nagios High"
+    },
+
+    "SNSTopicNagiosInformational" : {
+      "Value" : { "Ref" : "HUITNagiosInformational" },
+      "Description" : "Drupal Website SNS Topic Nagios Informational"
+    },
+}
+
+}

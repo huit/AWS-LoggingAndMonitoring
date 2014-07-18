@@ -1,0 +1,315 @@
+{
+
+"Parameters" : {
+
+	"ElasticLoadBalancer" : {
+		"Description" : "The Elastic Load Balancer for the stack",
+		"Type" : "String",
+		"Default" : "HPAC-Drup-ElasticL-176S7ICSXN6S1"
+	},
+
+	"MasterDB" : {
+		"Description" : "The RDS database for the stack",
+		"Type" : "String",
+		"Default" : "hpac-drupal-stackmasterdatabase"
+	},
+	
+	"CriticalAlarmTopic" : {
+		"Description" : "The name of the Nagios Critical Alarm SNS Topic",
+		"Type" : "String",
+		"Default" : "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_Critical"
+	},
+
+
+
+    "DBClass" : {
+      "Description" : "Database instance class",
+      "Type" : "String",
+      "AllowedValues" : [ "db.m1.small", "db.m1.large", "db.m1.xlarge", "db.m2.xlarge", "db.m2.2xlarge", "db.m2.4xlarge" ],
+      "ConstraintDescription" : "must select a valid database instance type."
+    },
+
+
+    "DBName": {
+      "Description" : "The Drupal database name",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "64",
+      "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*",
+      "ConstraintDescription" : "must begin with a letter and contain only alphanumeric characters."
+    }
+
+
+
+},
+
+
+  "Mappings" : {
+
+    "InstanceTypeMap" : {
+      "db.m1.small" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadLatencyLimit" : "5", 
+        "ReadIOPSLimit" : "100",
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m1.large" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadLatencyLimit" : "5", 
+        "ReadIOPSLimit" : "100",
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m1.xlarge" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadLatencyLimit" : "5", 
+        "ReadIOPSLimit" : "100",
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m2.xlarge" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadIOPSLimit" : "100",
+        "ReadLatencyLimit" : "5", 
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m2.2xlarge" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadIOPSLimit" : "100",
+        "ReadLatencyLimit" : "5", 
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m2.4xlarge" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadIOPSLimit" : "100",
+        "ReadLatencyLimit" : "5",        
+        "WriteIOPSLimit" : "100"
+      }
+    }
+
+},
+
+
+"Resources" : {
+
+  "ELBLatencyAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+	"AlarmDescription": "Alert id ELB Latency over 1 sec on average for 5 minutes",
+	"Namespace": "AWS/ELB",
+	"MetricName": "Latency",
+	"Statistic": "Average",
+	"Period": "60",
+	"Threshold": "1",
+	"ComparisonOperator": "GreaterThanThreshold",
+	"EvaluationPeriods": "5",
+	"AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+	"Dimensions": [{
+		"Name": "LoadBalancerName",
+		"Value": { "Ref": "ElasticLoadBalancer" }
+	}]
+      }
+    },
+
+   "ELB5XXAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+	"AlarmDescription": "Alert on 5XX errors over 1 min",
+	"Namespace": "AWS/ELB",
+	"MetricName": "HTTPCode_ELB_5XX",
+	"Statistic": "Sum",
+	"Period": "60",
+	"Threshold": "10",
+	"ComparisonOperator": "GreaterThanThreshold",
+	"EvaluationPeriods": "1",
+	"AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+	"Dimensions": [{
+		"Name": "LoadBalancerName",
+		"Value": { "Ref": "ElasticLoadBalancer" }
+	}]
+      }
+    },
+
+   "ELB4XXAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Alert on 4XX errors over 1 min",
+        "Namespace": "AWS/ELB",
+        "MetricName": "HTTPCode_ELB_4XX",
+        "Statistic": "Sum",
+        "Period": "60",
+        "Threshold": "10",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "1",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "LoadBalancerName",
+            "Value": { "Ref": "ElasticLoadBalancer" }
+        }]
+      }
+    }, 
+
+
+  "DBCPUHighAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " CPU > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "CPULimit" ]}, "% for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "CPUUtilization",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "CPULimit" ]},
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+
+
+ "DBFreeStorageSpaceAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " storage space <= ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "FreeStorageSpaceLimit" ]}, " for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "FreeStorageSpace",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "FreeStorageSpaceLimit" ]},
+        "ComparisonOperator": "LessThanOrEqualToThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+
+    "DBReadIOPSHighAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " WriteIOPs > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "ReadIOPSLimit" ]}, " for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "ReadIOPS",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "ReadIOPSLimit" ]},
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+    "DBReadLatencyHighAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " WriteIOPs > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "ReadIOPSLimit" ]}, " for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "ReadLatency",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "ReadLatencyLimit" ]},
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+
+    "WriteIOPSHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": { "Fn::Join" : [ "", ["Alarm if ", { "Ref" : "DBName" }, " WriteIOPs > ", { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "WriteIOPSLimit" ]}, " for 5 minutes" ]]},
+        "Namespace": "AWS/RDS",
+        "MetricName": "WriteIOPS",
+        "Statistic": "Average",
+        "Period": "60",
+        "Threshold": { "Fn::FindInMap" : [ "InstanceTypeMap", { "Ref" : "DBClass" }, "WriteIOPSLimit" ]},
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": "5",
+        "AlarmActions": [ { "Ref": "CriticalAlarmTopic" } ],
+        "Dimensions": [{
+            "Name": "DBInstanceIdentifier",
+            "Value": { "Ref": "MasterDB" }
+        }]
+      }
+    },
+
+	"HPACreadLatency" : {
+	   "Type" : "AWS::CloudWatch::Alarm",
+	   "Properties" : {
+	      "ActionsEnabled" : true,
+	      "AlarmActions" : [ 
+			 { "Ref" : "CriticalAlarmTopic" }
+		],
+	      "AlarmDescription" : "Database read latency on RDS instance",
+	      "AlarmName" : "AWS RDS ReadLatency",
+	      "ComparisonOperator" : "GreaterThanOrEqualToThreshold",
+	      "Dimensions" : [ 
+			{
+			    "Name": "DBInstanceIdentifier", 
+			    "Value": { "Ref" : "MasterDB" }
+			}
+	      ],
+	      "EvaluationPeriods" : 1,
+	      "InsufficientDataActions" : [
+			 { "Ref" : "CriticalAlarmTopic" }
+	      ],
+	      "MetricName" : "ReadLatency",
+	      "Namespace" : "AWS/RDS",
+	      "OKActions" : [ 
+			 { "Ref" : "CriticalAlarmTopic" }
+	      ],
+	      "Period" : 300,
+	      "Statistic" : "Average",
+	      "Threshold" : 0.5
+	   }
+	},
+
+	"HPACwriteLatency" : {
+	   "Type" : "AWS::CloudWatch::Alarm",
+	   "Properties" : {
+	      "ActionsEnabled" : true,
+	      "AlarmActions" : [ 
+			 { "Ref" : "CriticalAlarmTopic" }
+		],
+	      "AlarmDescription" : "Database write latency on RDS instance",
+	      "AlarmName" : "AWS RDS WriteLatency",
+	      "ComparisonOperator" : "GreaterThanOrEqualToThreshold",
+	      "Dimensions" : [ 
+			{
+			    "Name": "DBInstanceIdentifier", 
+			    "Value": { "Ref" : "MasterDB" }
+			}
+	      ],
+	      "EvaluationPeriods" : 1,
+	      "InsufficientDataActions" : [
+			 { "Ref" : "CriticalAlarmTopic" }
+	      ],
+	      "MetricName" : "WriteLatency",
+	      "Namespace" : "AWS/RDS",
+	      "OKActions" : [ 
+			 { "Ref" : "CriticalAlarmTopic" }
+	      ],
+	      "Period" : 300,
+	      "Statistic" : "Average",
+	      "Threshold" : 0.5
+	   }
+	}
+}
+
+}

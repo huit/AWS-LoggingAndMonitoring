@@ -2,52 +2,97 @@
 
 "Parameters" : {
 
-	"AlreadyRunningStackName" : {
-		"Description" : "The name of the stack onto which you want to add these alarms and topics",
-		"Type" : "String"
+	"ElasticLoadBalancer" : {
+		"Description" : "The Elastic Load Balancer for the stack",
+		"Type" : "String",
+		"Default" : "HPAC-Drup-ElasticL-176S7ICSXN6S1"
 	},
 
-	"NagiosSNSprodA" : {
-		"Default": "https://nagios.fas.harvard.edu/aws_sns_receiver.php",
-		"Description": "Nagios Primary Prod SNS HTTPS endpoint",
-		"Type": "String"
+	"MasterDB" : {
+		"Description" : "The RDS database for the stack",
+		"Type" : "String",
+		"Default" : "hpac-drupal-stackmasterdatabase"
 	},
-
-	"NagiosSNSprodB" : {
-		"Default": "https://palantir2.unix.fas.harvard.edu/aws_sns_receiver.php",
-		"Description": "Nagios Alternate Prod SNS HTTPS endpoint",
-		"Type": "String"
-	},
-
-	"AWSSupportList" : {
-		"Default": "aws-support@mailman.fas.harvard.edu",
-		"Description": "AWS email list for HUIT internal support issues",
-		"Type": "String"
-	},
-
+	
 	"CriticalAlarmTopic" : {
-		"Default": "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_Critical",
-		"Description": "SNS Topic for Critical Alerts",
-		"Type": "String"
+		"Description" : "The name of the Nagios Critical Alarm SNS Topic",
+		"Type" : "String",
+		"Default" : "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_Critical"
 	},
 
-	"HighAlarmTopic" : {
-		"Default": "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_High",
-		"Description": "SNS Topic for High Alerts",
-		"Type": "String"
-	},
 
-	"InformationalAlarmTopic" : {
-		"Default": "arn:aws:sns:us-east-1:219880708180:HUIT_Nagios_Informational",
-		"Description": "SNS Topic for Informational Alerts",
-		"Type": "String"
-	}
 
-//	"DBInstance" : {
-//		"Description" : "The identifier of the RDS instance",
-//		"Type" : "String"
-//	}
+    "DBClass" : {
+      "Description" : "Database instance class",
+      "Type" : "String",
+      "AllowedValues" : [ "db.m1.small", "db.m1.large", "db.m1.xlarge", "db.m2.xlarge", "db.m2.2xlarge", "db.m2.4xlarge" ],
+      "ConstraintDescription" : "must select a valid database instance type."
+    },
+
+
+    "DBName": {
+      "Description" : "The Drupal database name",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "64",
+      "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*",
+      "ConstraintDescription" : "must begin with a letter and contain only alphanumeric characters."
+    }
+
+
+
 },
+
+
+  "Mappings" : {
+
+    "InstanceTypeMap" : {
+      "db.m1.small" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadLatencyLimit" : "5", 
+        "ReadIOPSLimit" : "100",
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m1.large" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadLatencyLimit" : "5", 
+        "ReadIOPSLimit" : "100",
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m1.xlarge" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadLatencyLimit" : "5", 
+        "ReadIOPSLimit" : "100",
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m2.xlarge" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadIOPSLimit" : "100",
+        "ReadLatencyLimit" : "5", 
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m2.2xlarge" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadIOPSLimit" : "100",
+        "ReadLatencyLimit" : "5", 
+        "WriteIOPSLimit" : "100"
+      },
+      "db.m2.4xlarge" : {
+        "CPULimit" : "60",
+        "FreeStorageSpaceLimit" : "1024",
+        "ReadIOPSLimit" : "100",
+        "ReadLatencyLimit" : "5",        
+        "WriteIOPSLimit" : "100"
+      }
+    }
+
+},
+
 
 "Resources" : {
 
@@ -217,7 +262,7 @@
 	      "Dimensions" : [ 
 			{
 			    "Name": "DBInstanceIdentifier", 
-			    "Value": { "Ref" : "DBInstance" }
+			    "Value": { "Ref" : "MasterDB" }
 			}
 	      ],
 	      "EvaluationPeriods" : 1,
@@ -248,7 +293,7 @@
 	      "Dimensions" : [ 
 			{
 			    "Name": "DBInstanceIdentifier", 
-			    "Value": { "Ref" : "DBName" }
+			    "Value": { "Ref" : "MasterDB" }
 			}
 	      ],
 	      "EvaluationPeriods" : 1,
@@ -264,91 +309,7 @@
 	      "Statistic" : "Average",
 	      "Threshold" : 0.5
 	   }
-	},
-
-
-	"HUITNagiosCritical" : {
-	   "Type" : "AWS::SNS::Topic",
-	   "Properties" : {
-	      "Subscription" : [
-		 { "Endpoint" :
-		  { "Ref" : "NagiosSNSprodA" },
-		  "Protocol" : "https"
-		 },   
-		 { "Endpoint" :
-		  { "Ref" : "NagiosSNSprodB" },
-		  "Protocol" : "https"
-		 },   
-		 { "Endpoint" :
-		  { "Ref" : "AWSSupportList" },
-		  "Protocol" : "email"
-		 }    
-	      ],   
-	      "TopicName" : "HUIT_Nagios_Critical"
-	   }
-	},
-
-	"HUITNagiosHigh" : {
-	   "Type" : "AWS::SNS::Topic",
-	   "Properties" : {
-	      "Subscription" : [
-		 { "Endpoint" :
-		  { "Ref" : "NagiosSNSprodA" },
-		  "Protocol" : "https"
-		 },   
-		 { "Endpoint" :
-		  { "Ref" : "NagiosSNSprodB" },
-		  "Protocol" : "https"
-		 },   
-		 { "Endpoint" :
-		  { "Ref" : "AWSSupportList" },
-		  "Protocol" : "email"
-		 }    
-	      ],   
-	      "TopicName" : "HUIT_Nagios_High"
-	   }
-	},
-
-	"HUITNagiosInformational" : {
-	   "Type" : "AWS::SNS::Topic",
-	   "Properties" : {
-	      "Subscription" : [
-		 { "Endpoint" :
-		  { "Ref" : "NagiosSNSprodA" },
-		  "Protocol" : "https"
-		 },   
-		 { "Endpoint" :
-		  { "Ref" : "NagiosSNSprodB" },
-		  "Protocol" : "https"
-		 },   
-		 { "Endpoint" :
-		  { "Ref" : "AWSSupportList" },
-		  "Protocol" : "email"
-		 }    
-	      ],   
-	      "TopicName" : "HUIT_Nagios_Informational"
-	   }
 	}
-
-},
-
-
-"Outputs" : {
-
-    "SNSTopicNagiosCritical" : {
-      "Value" : { "Ref" : "HUITNagiosCritical" },
-      "Description" : "Drupal Website SNS Topic Nagios Critical"
-    },
-
-    "SNSTopicNagiosHigh" : {
-      "Value" : { "Ref" : "HUITNagiosHigh" },
-      "Description" : "Drupal Website SNS Topic Nagios High"
-    },
-
-    "SNSTopicNagiosInformational" : {
-      "Value" : { "Ref" : "HUITNagiosInformational" },
-      "Description" : "Drupal Website SNS Topic Nagios Informational"
-    },
 }
 
 }

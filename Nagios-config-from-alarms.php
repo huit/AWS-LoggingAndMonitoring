@@ -48,6 +48,7 @@
 // Changes:
 // 2014-08-21 - Added MetricAlarms->Namespace into colon-delimited new format of Host Alias, to be used in performing Active Service Checks.
 // 2014-08-22 - Added check for no JSON on input
+// 2014-09-03 - Changed "thing=explode()[ index ]" which works on PHP 5.4 to "thingX=explode(); thing=thingX[ index ]" which works on PHP 5.3. Grr.
 
 
 
@@ -74,7 +75,8 @@ $serviceList = "";
 
 // Don't bother looking at anything other than the first one. 
 // We'll assume it's all the same region.
-$region = explode( ":", $json->MetricAlarms[ 0 ]->AlarmArn )[ 3 ];
+$regionExploded = explode( ":", $json->MetricAlarms[ 0 ]->AlarmArn ) ;
+$region = $regionExploded[ 3 ] ;
 //print "# \$region = " ;
 //var_dump( $region ) ;
 
@@ -155,7 +157,8 @@ foreach( $json->MetricAlarms as $alarmInstance ) {
 
 	foreach( $alarmInstance->AlarmActions as $alarmAction ) {
 		if ( preg_match( "/nagios/i", $alarmAction ) ) {	// Only if it's a Nagios action!
-			$webSiteName = explode( " ", $alarmInstance->AlarmName )[ 0 ] ;
+			$webSiteNameExploded = explode( " ", $alarmInstance->AlarmName ) ;
+			$webSiteName = $webSiteNameExploded[ 0 ] ;
 			$webSiteName = str_replace( "-", ".", $webSiteName ) ;
 			$hostName = $webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
 			$allHostNames[ $hostName ] = $alarmInstance->Namespace . ":" . $alarmInstance->Dimensions[ 0 ]->Name ;
@@ -217,7 +220,8 @@ foreach( $json->MetricAlarms as $alarmInstance ) {
 		if ( preg_match( "/nagios/i", $alarmAction ) ) {
 
 // the working area - in progress
-			$webSiteName =    explode( " ", $alarmInstance->AlarmName )[ 0 ] ;
+			$webSiteNameExploded = explode( " ", $alarmInstance->AlarmName ) ;
+			$webSiteName =    $webSiteNameExploded[ 0 ] ;
 			$webSiteName =    str_replace( "-", ".", $webSiteName ) ;
 			$instanceName =   $alarmInstance->Dimensions[ 0 ]->Value ;
 			$hostName = 	  $webSiteName . ":" . $instanceName ;
@@ -343,5 +347,5 @@ ENDOFTEXT;
 
 
 
-
+exit( 0 );
 ?>

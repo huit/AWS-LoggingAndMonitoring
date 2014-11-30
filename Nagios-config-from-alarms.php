@@ -403,7 +403,7 @@ define service {
 	use				aws-service-CloudFront-Alarm
 	host_name			$hostName
 	service_description		$serviceName
-	notes				$serviceExtInfo ($hostNameFrom = $hostName, AlarmName = $alarmInstance->AlarmName)
+	notes				$serviceExtInfo ($hostNameFrom = $hostName, AlarmName = $alarmInstance->AlarmName, Namespace = $namespace)
 	action_url			$actionURL
 	notes_url			$notesURL
 }

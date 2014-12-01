@@ -89,7 +89,9 @@ if ( $debug ) {
 // Check for getting something back!
 if ( ! isset( $CloudWatchAlarmsJSON ) || $CloudWatchAlarmsJSON == "" ) {
 	print "Error - no JSON data returned from \"$awsReadAlarmCommand\"\n" ;
-	fwrite( $logFH, "Error - no JSON data returned from \"$awsReadAlarmCommand\"\n" ) ;
+	if( $debug ){
+		fwrite( $logFH, "Error - no JSON data returned from \"$awsReadAlarmCommand\"\n" ) ;
+	}
 	exit( STATE_UNKNOWN ) ;
 }
 

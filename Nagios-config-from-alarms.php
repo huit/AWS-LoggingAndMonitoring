@@ -101,9 +101,15 @@ $region = $regionExploded[ 3 ] ;
 // Example call:
 // aws --profile=hwp ec2 describe-instances --filters "Name=tag-value,Values=HPAC*Prod" "Name=tag:Environment,Values=prod" "Name=instance-state-name,Values=running"
 
+// However, for HPAC it's actually redundant to specify "prod" in both the tag-name globbing search and tag name/value, so we really only need one of the following:
+// aws --profile=hwp ec2 describe-instances --filters "Name=tag-value,Values=HPAC*" "Name=tag:Environment,Values=prod" "Name=instance-state-name,Values=running"
+// or
+// aws --profile=hwp ec2 describe-instances --filters "Name=tag-value,Values=HPAC*Prod" "Name=instance-state-name,Values=running"
+
+
 $awsReadEC2InstancesCommand  = "aws ec2 describe-instances" ;
 $awsReadEC2InstancesCommand .= " --profile=" . $commandOptions[ "profile" ] ;
-$awsReadEC2InstancesCommand .= " --filters " . "\"Name=instance-state-name,Values=running\" \"Name=tag:Environment,Values=prod\"" ;
+$awsReadEC2InstancesCommand .= " --filters " . "\"Name=instance-state-name,Values=running\"" ;
 $awsReadEC2InstancesCommand .= " \"Name=tag-value,Values=" . $commandOptions[ "stackNameMatch" ] . "\"" ;
 
 $EC2InstancesJSON = json_decode( shell_exec( $awsReadEC2InstancesCommand ) ) ;
@@ -184,7 +190,7 @@ define service {
 	retry_check_interval		15
 	notification_interval		30
 	max_check_attempts		1
-	event_handler			submit_AWS_config_refresh!nagios-master-server!"Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync"!\$SERVICESTATE:nagios-master-server:Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync$!\$LASTSERVICECHECK:nagios-master-server:Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync$!\$SERVICESTATE$!\$SERVICEATTEMPT$
+	event_handler			submit_AWS_config_refresh!nagios-master-server!"Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync"!\$SERVICESTATE:nagios-master-server:Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync$!\$LASTSERVICECHECK:nagios-master-server:Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$
 	register			0
 # Enable these two (and comment out check_command above) if you want to do purely Passive checks, incoming SNS from AWS Cloudwatch.
 # (However, don't edit this dynamic config file! Do it in $myName)
@@ -260,7 +266,11 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			$hostName = $webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
 			
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
-				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
+				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
+					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter \"" . $commandOptions[ "stackNameMatch" ] . "\"!!!\n" ;
+					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n" ;
+					continue ;
+				} elseif ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
 					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because its EC2 Environment tag is not set, therefore it's not prod.\n\n" ;
 					continue ;
 				} elseif ( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] != "prod" ) {
@@ -343,7 +353,11 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			$serviceName = 	  $alarmInstance->MetricName ;
 
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
-				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
+				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
+					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter \"" . $commandOptions[ "stackNameMatch" ] . "\"!!!\n" ;
+					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n\n" ;
+					continue ;
+				} elseif ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
 					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" because its EC2 Environment tag is not set, therefore it's not prod!\n\n" ;
 					continue ;
 				} elseif ( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] != "prod" ) {

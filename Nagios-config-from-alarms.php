@@ -1,12 +1,13 @@
 #!/usr/bin/php
 <?php
 
+// =============================================================================================
 // Nagios-config-from-alarms.php
 //
 // By Stefan Wuensch stefan_wuensch@harvard.edu September 2014
 //
 // Usage:
-// Nagios-config-from-alarms.php --stackNameMatch string --profile string [ -h ] [ --help ]
+// Nagios-config-from-alarms.php --appStack string --profile string [ -h ] [ --help ]
 //
 // Output: Nagios configuration objects
 //
@@ -36,7 +37,7 @@
 //
 //
 // Example minified input string for testing:
-//{"MetricAlarms":[{"AlarmArn":"arn:aws:cloudwatch:myFakeRegion:123456:alarm:MyTestAlarm","AlarmActions":["arn:aws:sns:myFakeRegion:123456:SomeNagiosTopic"],"Namespace":"AWS/RDS","AlarmDescription":"Some text string(s)","AlarmName":"websitename-harvard-edu plus other text","Dimensions":[{"Name":"FakeDescriptor","Value":"fakeHostName"}],"MetricName":"CPUUtilization"}]}
+// {"MetricAlarms":[{"AlarmArn":"arn:aws:cloudwatch:myFakeRegion:123456:alarm:MyTestAlarm","AlarmActions":["arn:aws:sns:myFakeRegion:123456:SomeNagiosTopic"],"Namespace":"AWS/RDS","AlarmDescription":"Some text string(s)","AlarmName":"websitename-harvard-edu plus other text","Dimensions":[{"Name":"FakeDescriptor","Value":"fakeHostName"}],"MetricName":"CPUUtilization"}]}
 //
 //
 // Primary data (where X is the index into the array)
@@ -44,6 +45,7 @@
 // Nagios "service" name: $json->MetricAlarms[ X ]->MetricName
 // Nagios serviceextinfo: $json->MetricAlarms[ X ]->AlarmDescription
 // 
+// =============================================================================================
 // 
 // Changes:
 // 2014-08-21 - Added MetricAlarms->Namespace into colon-delimited new format of Host Alias, to be used in performing Active Service Checks.
@@ -51,6 +53,7 @@
 // 2014-09-03 - Changed "thing=explode()[ index ]" which works on PHP 5.4 to "thingX=explode(); thing=thingX[ index ]" which works on PHP 5.3. Grr.
 // 2014-09-18 - Excluding Host config generation for AWS/EC2 Instances because we're now building those from Instance data in the other script.
 //		Changed from reading JSON on STDIN to calling AWS CLI
+// =============================================================================================
 
 
 
@@ -62,24 +65,55 @@ date_default_timezone_set('America/New_York');
 // Load our constants and etc.
 include_once( dirname( __FILE__ ) . '/utils.php' );
 
-// Assume data from STDIN only - probably we'll never read a file for input.
-// $alarmsJSON = json_decode( file_get_contents( "php://stdin" ) );
-// That was the old way. Here's the new hotness...
 
-$commandOptions = getopt( "h", array( "stackNameMatch:", "profile:", "help" ) ) ;
+
+// =============================================================================================
+// Load our configuration data
+$configFile = dirname( __FILE__ ) . '/AWS_config.json' ;
+$configJSON = json_decode( file_get_contents( $configFile ) ) ;
+
+$commandOptions = getopt( "h", array( "appStack:", "profile:", "help" ) ) ;
 if ( isset( $commandOptions[ "h" ] ) || isset( $commandOptions[ "help" ] ) ) {
 	usage() ;
 	exit( STATE_UNKNOWN );
 }
-foreach( array( "stackNameMatch", "profile" ) as $testThis ) {
+foreach( array( "appStack", "profile" ) as $testThis ) {
 	if ( ! isset( $commandOptions[ $testThis ] ) || $commandOptions[ $testThis ] == "" ) {
 		print "Error: Missing value for " . $testThis . "\n" ;
 		usage() ;
 		exit( STATE_UNKNOWN );
 	}
 }
+// =============================================================================================
 
-$awsReadAlarmsCommand = "aws cloudwatch describe-alarms --profile=" . $commandOptions[ "profile" ] ;
+
+
+
+
+// =============================================================================================
+// Misc. global variable setup
+
+$awsConsoleURLBase = "https://console.aws.amazon.com/" ;
+$myName = __FILE__ ;
+$nagiosMasterName = $configJSON->nagiosMasterName ;
+
+$customerProfile 	= $commandOptions[ "profile" ] ;
+$appStack 		= $commandOptions[ "appStack" ] ;
+$customerShortName = $configJSON->accountsByName->$customerProfile->$appStack->customerShortName ;
+$customerLongName  = $configJSON->accountsByName->$customerProfile->$appStack->customerLongName ;
+$stackNameMatch    = $configJSON->accountsByName->$customerProfile->$appStack->stackNameMatch ;
+
+// Need to ensure these are empty because we bolt on additional strings later.
+$hostList = "";
+$serviceList = "";
+// =============================================================================================
+
+
+
+
+// =============================================================================================
+// Get Alarms
+$awsReadAlarmsCommand = "aws cloudwatch describe-alarms --profile=" . $customerProfile ;
 $alarmsJSON = json_decode( shell_exec( $awsReadAlarmsCommand ) ) ;
 
 // Check for getting something back!
@@ -91,12 +125,17 @@ if ( sizeof( $alarmsJSON->MetricAlarms ) < 1 ) {
 	print "Error: Got no Alarms back from $awsReadAlarmsCommand \n" ;
 	exit( STATE_UNKNOWN ) ;
 }
+// =============================================================================================
 
 // Don't bother looking at anything other than the first one. 
 // We'll assume it's all the same region.
 $regionExploded = explode( ":", $alarmsJSON->MetricAlarms[ 0 ]->AlarmArn ) ;
 $region = $regionExploded[ 3 ] ;
 
+
+
+// =============================================================================================
+// Get Instances
 
 // Example call:
 // aws --profile=hwp ec2 describe-instances --filters "Name=tag-value,Values=HPAC*Prod" "Name=tag:Environment,Values=prod" "Name=instance-state-name,Values=running"
@@ -108,9 +147,9 @@ $region = $regionExploded[ 3 ] ;
 
 
 $awsReadEC2InstancesCommand  = "aws ec2 describe-instances" ;
-$awsReadEC2InstancesCommand .= " --profile=" . $commandOptions[ "profile" ] ;
-$awsReadEC2InstancesCommand .= " --filters " . "\"Name=instance-state-name,Values=running\"" ;
-$awsReadEC2InstancesCommand .= " \"Name=tag-value,Values=" . $commandOptions[ "stackNameMatch" ] . "\"" ;
+$awsReadEC2InstancesCommand .= " --profile=" . $customerProfile ;
+$awsReadEC2InstancesCommand .= " --filters " . "\"Name=instance-state-name,Values=running\" \"Name=tag:Environment,Values=prod\"" ;
+$awsReadEC2InstancesCommand .= " \"Name=tag-value,Values=" . $stackNameMatch . "\"" ;
 
 $EC2InstancesJSON = json_decode( shell_exec( $awsReadEC2InstancesCommand ) ) ;
 
@@ -120,16 +159,11 @@ if ( ! isset( $EC2InstancesJSON ) || $EC2InstancesJSON == "" ) {
 	exit( STATE_UNKNOWN ) ;
 }
 if ( sizeof( $EC2InstancesJSON->Reservations ) < 1 ) {
-	print "Error: Got no valid data back from \"aws ec2 describe-tags\" for the filter \"" . $commandOptions[ "stackNameMatch" ] . "\"\n" ;
+	print "Error: Got no valid data back from \"aws ec2 describe-tags\" for the filter \"" . $stackNameMatch . "\"\n" ;
 	exit( STATE_UNKNOWN ) ;
 }
+// =============================================================================================
 
-
-// Need to ensure these are empty because we bolt on additional strings later.
-$hostList = "";
-$serviceList = "";
-
-$awsConsoleURLBase = "https://console.aws.amazon.com/" ;
 
 
 
@@ -137,7 +171,6 @@ $awsConsoleURLBase = "https://console.aws.amazon.com/" ;
 ////////////////////////////////////////////////////////////////////////////////
 // Header / Comments
 
-$myName = __FILE__ ;
 
 echo <<<ENDOFTEXT
 #################################################
@@ -153,6 +186,8 @@ ENDOFTEXT;
 echo "# " . $myName . "\n# by Stefan Wuensch, Summer 2014\n\n";
 
 print "# This config file generated: " . date("Y-m-d H:i:s") . "\n\n" ;
+
+print "# Input to this script was: " . $configFile . "\n\n" ;
 
 $statsLeadingText = "Total number of" ;
 print "# Note: Search this file for the string \"$statsLeadingText\" to see statistics on the number of objects.\n\n\n" ;
@@ -184,13 +219,13 @@ define service {
 	name				aws-service-CloudFront-Alarm
 	use				aws-service-active-check
 	contact_groups			aws-info-group
-	check_command			check_AWS_CloudWatch_Alarm!hwp
+	check_command			check_AWS_CloudWatch_Alarm!$customerProfile
 	notification_options		u,c,r,f,s
 	normal_check_interval		30
 	retry_check_interval		15
 	notification_interval		30
 	max_check_attempts		1
-	event_handler			submit_AWS_config_refresh!nagios-master-server!"Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync"!\$SERVICESTATE:nagios-master-server:Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync$!\$LASTSERVICECHECK:nagios-master-server:Nagios configuration for HWP AWS CloudWatch Alarms out-of-sync$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$
+	event_handler			submit_AWS_config_refresh!$nagiosMasterName!"Nagios configuration for $customerShortName AWS CloudWatch Alarms out-of-sync"!\$SERVICESTATE:$nagiosMasterName:Nagios configuration for $customerShortName AWS CloudWatch Alarms out-of-sync$!\$LASTSERVICECHECK:$nagiosMasterName:Nagios configuration for $customerShortName AWS CloudWatch Alarms out-of-sync$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$
 	register			0
 # Enable these two (and comment out check_command above) if you want to do purely Passive checks, incoming SNS from AWS Cloudwatch.
 # (However, don't edit this dynamic config file! Do it in $myName)
@@ -267,7 +302,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
-					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter \"" . $commandOptions[ "stackNameMatch" ] . "\"!!!\n" ;
+					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter \"$stackNameMatch\"!!!\n" ;
 					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n" ;
 					continue ;
 				} elseif ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
@@ -320,7 +355,7 @@ define host {
 	use			aws-host-CloudFront-Alarm
 	host_name		$hostName
 	_AWS_Data		$shortSiteName:$hostNameFrom
-	hostgroups		HPAC in AWS - All
+	hostgroups		$customerShortName in AWS - All
 }
 
 
@@ -354,7 +389,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
-					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter \"" . $commandOptions[ "stackNameMatch" ] . "\"!!!\n" ;
+					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter \"$stackNameMatch\"!!!\n" ;
 					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n\n" ;
 					continue ;
 				} elseif ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
@@ -444,12 +479,14 @@ print "# $statsLeadingText Nagios AWS Services: $totalServices\n\n\n\n";
 $hostList = rtrim( $hostList, "," ) ; // Trim off the last comma
 
 	echo <<<ENDOFTEXT
+
+
 ###############################################################################
 # Hostgroups
 
 define hostgroup {
-	hostgroup_name	HPAC in AWS - Incoming Alarms
-	alias		Harvard Publishing and Communications AWS Incoming SNS
+	hostgroup_name	$customerShortName in AWS - Incoming Alarms
+	alias		$customerLongName AWS Incoming SNS
 	members		$hostList
 }
 
@@ -470,8 +507,8 @@ foreach( $allSiteNames as $siteName => $allHostNames ) {
 
 	echo <<<ENDOFTEXT
 define hostgroup {
-	hostgroup_name	HPAC in AWS - site $siteName
-	alias		$siteName Harvard Publishing and Communications AWS Incoming SNS
+	hostgroup_name	$customerShortName in AWS - site $siteName
+	alias		$siteName $customerLongName AWS Incoming SNS
 	members		$hostList
 }
 
@@ -494,8 +531,8 @@ $serviceList = rtrim( $serviceList, "," ) ; // Trim off the last comma
 # Servicegroups
 
 define servicegroup {
-	servicegroup_name	HPAC in AWS
-	alias			HPAC Service Checks from AWS
+	servicegroup_name	$customerShortName in AWS
+	alias			$customerShortName Service Checks from AWS
 	members			$serviceList
 }
 
@@ -510,15 +547,13 @@ ENDOFTEXT;
 
 
 
-//=============================================================================
+// =============================================================================================
 function usage() {
 
-	print "Usage: \n" ;
-	print __FILE__ . " --stackNameMatch string --profile string [ --help ] [ -h ]\n" ;
-	print "Note: Globbing with wildcards '*' and '?' is allowed in \"stackNameMatch\".\n" ;
+	print "Usage: " . __FILE__ . " --appStack string --profile string [ --help | -h ]\n" ;
 
 }
-//=============================================================================
+// =============================================================================================
 
 
 print "# Completed OK at " . date("Y-m-d H:i:s") . "\n" ;

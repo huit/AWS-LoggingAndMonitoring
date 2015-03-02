@@ -77,13 +77,15 @@ if ( isset( $commandOptions[ "h" ] ) || isset( $commandOptions[ "help" ] ) ) {
 	usage() ;
 	exit( STATE_UNKNOWN );
 }
-foreach( array( "appStack", "profile" ) as $testThis ) {
+foreach( array( "appStack", "profile" ) as $testThis ) {	// Check for required args
 	if ( ! isset( $commandOptions[ $testThis ] ) || $commandOptions[ $testThis ] == "" ) {
 		print "Error: Missing value for " . $testThis . "\n" ;
 		usage() ;
 		exit( STATE_UNKNOWN );
 	}
 }
+$appStack 		= $commandOptions[ "appStack" ] ;
+$customerProfile 	= $commandOptions[ "profile" ] ;
 // =============================================================================================
 
 
@@ -97,11 +99,19 @@ $awsConsoleURLBase = "https://console.aws.amazon.com/" ;
 $myName = __FILE__ ;
 $nagiosMasterName = $configJSON->nagiosMasterName ;
 
-$customerProfile 	= $commandOptions[ "profile" ] ;
-$appStack 		= $commandOptions[ "appStack" ] ;
+if ( ! property_exists( $configJSON->accountsByName->$customerProfile, $appStack ) ) {
+	print "Error: Can't find app stack \"$appStack\" in $configFile accountsByName->$customerProfile\n" ;
+	exit( STATE_UNKNOWN );
+}
+
+foreach( array( "customerShortName", "customerLongName", "tagFilters" ) as $testThis ) {	// Validate these
+	if ( ! property_exists( $configJSON->accountsByName->$customerProfile->$appStack, $testThis ) ) {
+		print "Error: Missing \"$testThis\" in $configFile accountsByName->$customerProfile->$appStack\n" ;
+		exit( STATE_UNKNOWN );
+	}
+}
 $customerShortName = $configJSON->accountsByName->$customerProfile->$appStack->customerShortName ;
 $customerLongName  = $configJSON->accountsByName->$customerProfile->$appStack->customerLongName ;
-$stackNameMatch    = $configJSON->accountsByName->$customerProfile->$appStack->stackNameMatch ;
 
 // Need to ensure these are empty because we bolt on additional strings later.
 $hostList = "";
@@ -148,8 +158,13 @@ $region = $regionExploded[ 3 ] ;
 
 $awsReadEC2InstancesCommand  = "aws ec2 describe-instances" ;
 $awsReadEC2InstancesCommand .= " --profile=" . $customerProfile ;
-$awsReadEC2InstancesCommand .= " --filters " . "\"Name=instance-state-name,Values=running\" \"Name=tag:Environment,Values=prod\"" ;
-$awsReadEC2InstancesCommand .= " \"Name=tag-value,Values=" . $stackNameMatch . "\"" ;
+$awsReadEC2InstancesCommand .= " --filters " . "\"Name=instance-state-name,Values=running\" " ;
+
+$filters = "" ;
+foreach( $configJSON->accountsByName->$customerProfile->$appStack->tagFilters as $filter ) {
+	$filters .= "\"$filter\" " ;
+}
+$awsReadEC2InstancesCommand .= $filters ;
 
 $EC2InstancesJSON = json_decode( shell_exec( $awsReadEC2InstancesCommand ) ) ;
 
@@ -159,7 +174,7 @@ if ( ! isset( $EC2InstancesJSON ) || $EC2InstancesJSON == "" ) {
 	exit( STATE_UNKNOWN ) ;
 }
 if ( sizeof( $EC2InstancesJSON->Reservations ) < 1 ) {
-	print "Error: Got no valid data back from \"aws ec2 describe-tags\" for the filter \"" . $stackNameMatch . "\"\n" ;
+	print "Error: Got no valid data back from \"aws ec2 describe-tags\" for the filter ( $filters)\n" ;
 	exit( STATE_UNKNOWN ) ;
 }
 // =============================================================================================
@@ -302,7 +317,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
-					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter \"$stackNameMatch\"!!!\n" ;
+					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
 					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n" ;
 					continue ;
 				} elseif ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
@@ -389,7 +404,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
-					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter \"$stackNameMatch\"!!!\n" ;
+					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
 					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n\n" ;
 					continue ;
 				} elseif ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {

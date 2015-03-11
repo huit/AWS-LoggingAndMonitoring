@@ -220,9 +220,12 @@ echo <<<ENDOFTEXT
 ###############################################################################
 # Templates
 
+# Note: Template names are automatically generated, ending with "-$customerShortName" to differentiate from other AWS customers.
+# "aws-info-group" is a default, which is expected to be replaced by a value from "nagiosContactGroup" out of the site config file.
+
 define host {
-	name				aws-host-CloudFront-Alarm
-	use				aws-host-active-check
+	name				aws-host-CloudFront-Alarm-$customerShortName
+	use				aws-host-active-check-$customerShortName
 	contact_groups			aws-info-group
 	register			0
 }
@@ -231,8 +234,8 @@ define host {
 # Very lazy check intervals because we are relying on Passive check inputs for true Alarm conditions.
 # The Active checking of services is just to fill in when we'd otherwise be waiting around for a Passive check.
 define service {
-	name				aws-service-CloudFront-Alarm
-	use				aws-service-active-check
+	name				aws-service-CloudFront-Alarm-$customerShortName
+	use				aws-service-active-check-$customerShortName
 	contact_groups			aws-info-group
 	check_command			check_AWS_CloudWatch_Alarm!$customerProfile
 	notification_options		u,c,r,f,s

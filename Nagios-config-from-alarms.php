@@ -98,6 +98,8 @@ $customerProfile 	= $commandOptions[ "profile" ] ;
 $awsConsoleURLBase = "https://console.aws.amazon.com/" ;
 $myName = __FILE__ ;
 $nagiosMasterName = $configJSON->nagiosMasterName ;
+$defaultContactGroup = $configJSON->defaultContactGroup ;
+$nagiosContactGroupAlarms = $defaultContactGroup ;	// This should be replaced per-site later.
 
 if ( ! property_exists( $configJSON->accountsByName->$customerProfile, $appStack ) ) {
 	print "Error: Can't find app stack \"$appStack\" in $configFile accountsByName->$customerProfile\n" ;
@@ -221,12 +223,12 @@ echo <<<ENDOFTEXT
 # Templates
 
 # Note: Template names are automatically generated, ending with "-$customerShortName" to differentiate from other AWS customers.
-# "aws-info-group" is a default, which is expected to be replaced by a value from "nagiosContactGroup" out of the site config file.
+# "$defaultContactGroup" is a default, which is expected to be replaced by a value from "nagiosContactGroupAlarms" out of the site config file.
 
 define host {
 	name				aws-host-CloudFront-Alarm-$customerShortName
 	use				aws-host-active-check-$customerShortName
-	contact_groups			aws-info-group
+	contact_groups			$defaultContactGroup
 	register			0
 }
 
@@ -236,7 +238,7 @@ define host {
 define service {
 	name				aws-service-CloudFront-Alarm-$customerShortName
 	use				aws-service-active-check-$customerShortName
-	contact_groups			aws-info-group
+	contact_groups			$defaultContactGroup
 	check_command			check_AWS_CloudWatch_Alarm!$customerProfile
 	notification_options		u,c,r,f,s
 	normal_check_interval		30
@@ -370,7 +372,7 @@ define host {
 	host_name		$hostName
 	_AWS_Data		$shortSiteName:$hostNameFrom
 	hostgroups		$customerShortName in AWS - All
-#	contact_groups			
+	contact_groups		$nagiosContactGroupAlarms
 }
 
 
@@ -461,7 +463,7 @@ define service {
 	use				aws-service-CloudFront-Alarm-$customerShortName
 	host_name			$hostName
 	service_description		$serviceName
-#	contact_groups			
+	contact_groups			$nagiosContactGroupAlarms
 	notes				$serviceExtInfo ($hostNameFrom = $hostName, AlarmName = $alarmInstance->AlarmName, Namespace = $namespace)
 	notes_url			$notesURL
 	action_url			$actionURL

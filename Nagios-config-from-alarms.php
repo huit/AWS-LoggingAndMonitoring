@@ -274,6 +274,9 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 		$instanceID = $ec2Instance->InstanceId ;
 // 		print "# Found \$ec2Instance->InstanceId: " . $ec2Instance->InstanceId . "\n";
 
+		$siteID = "" ;
+		$instanceName = "" ;
+
 		foreach( $ec2Instance->Tags as $ec2InstanceTag ) {
 			if ( $ec2InstanceTag->Key == "aws:cloudformation:stack-name" ) {
 				$siteID = $ec2InstanceTag->Value ;
@@ -281,20 +284,16 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 			if ( $ec2InstanceTag->Key == "Name" ) {
 				$instanceName = $ec2InstanceTag->Value ;
 			}
-			if ( $ec2InstanceTag->Key == "Environment" ) {
-				$instanceEnvironment = $ec2InstanceTag->Value ;
-			}
 		}
 
-		if ( ! isset( $instanceID ) || ! isset( $siteID ) || ! isset( $instanceName ) ) {
-			print "# Skipping an instance - found no instance ID and/or no stack name and/or no instance name!\n" ;
+		if ( ! isset( $siteID ) || $siteID == "" || ! isset( $instanceName ) || $instanceName == "" ) {
+			print "# Skipping instance $instanceID named \"$instanceName\" - found no stack name from Tag \"aws:cloudformation:stack-name\"\n" ;
 			continue ;
 		}
 
 		$allInstanceIDs[ $instanceID ][ "PublicIpAddress" ] 	= $ec2Instance->PublicIpAddress ;
 		$allInstanceIDs[ $instanceID ][ "PublicDnsName" ] 	= $ec2Instance->PublicDnsName ;
 		$allInstanceIDs[ $instanceID ][ "LaunchTime" ] 		= $ec2Instance->LaunchTime ;
-		$allInstanceIDs[ $instanceID ][ "Environment" ] 	= $instanceEnvironment ;
 		$allInstanceIDs[ $instanceID ][ "Name" ] 		= $instanceName ;
 		$allInstanceIDs[ $instanceID ][ "siteID" ] 		= $siteID ;
 
@@ -309,6 +308,9 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 // Key: "host" name
 // Value: the name of the attribute that is giving us the name
 
+$allSiteNames = array() ;	// Init to null
+$allHostNames = array() ;	// Init to null
+
 foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
 	foreach( $alarmInstance->AlarmActions as $alarmAction ) {
@@ -322,12 +324,6 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
 					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
 					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n" ;
-					continue ;
-				} elseif ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
-					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because its EC2 Environment tag is not set, therefore it's not prod.\n\n" ;
-					continue ;
-				} elseif ( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] != "prod" ) {
-					print "\n# Skipping host \"$hostName\" because the Environment is \"$allInstanceIDs->$hostName->Environment\" not \"prod\"\n\n" ;
 					continue ;
 				}
 			}
@@ -370,10 +366,11 @@ foreach ( $allHostNames as $hostName => $hostNameFrom ) {
 
 	echo <<<ENDOFTEXT
 define host {
-	use			aws-host-CloudFront-Alarm
+	use			aws-host-CloudFront-Alarm-$customerShortName
 	host_name		$hostName
 	_AWS_Data		$shortSiteName:$hostNameFrom
 	hostgroups		$customerShortName in AWS - All
+#	contact_groups			
 }
 
 
@@ -409,12 +406,6 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
 					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
 					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n\n" ;
-					continue ;
-				} elseif ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] ) ) {
-					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" because its EC2 Environment tag is not set, therefore it's not prod!\n\n" ;
-					continue ;
-				} elseif ( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ][ "Environment" ] != "prod" ) {
-					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" because the Environment is \"$allInstanceIDs->$hostName->Environment\" not \"prod\"\n\n" ;
 					continue ;
 				}
 			}
@@ -467,12 +458,13 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
 			echo <<<ENDOFTEXT
 define service {
-	use				aws-service-CloudFront-Alarm
+	use				aws-service-CloudFront-Alarm-$customerShortName
 	host_name			$hostName
 	service_description		$serviceName
+#	contact_groups			
 	notes				$serviceExtInfo ($hostNameFrom = $hostName, AlarmName = $alarmInstance->AlarmName, Namespace = $namespace)
-	action_url			$actionURL
 	notes_url			$notesURL
+	action_url			$actionURL
 }
 
 
@@ -496,7 +488,8 @@ print "# $statsLeadingText Nagios AWS Services: $totalServices\n\n\n\n";
 
 $hostList = rtrim( $hostList, "," ) ; // Trim off the last comma
 
-	echo <<<ENDOFTEXT
+	if ( $hostList != "" ) {	// Are there any hosts??
+		echo <<<ENDOFTEXT
 
 
 ###############################################################################
@@ -511,6 +504,7 @@ define hostgroup {
 
 
 ENDOFTEXT;
+	}				// End of Are there any hosts??
 
 // Next do a hostgroup for each site...
 
@@ -544,7 +538,8 @@ ENDOFTEXT;
 
 $serviceList = rtrim( $serviceList, "," ) ; // Trim off the last comma
 
-	echo <<<ENDOFTEXT
+	if ( $serviceList != "" ) {	// Are there any services??
+		echo <<<ENDOFTEXT
 ###############################################################################
 # Servicegroups
 
@@ -559,6 +554,7 @@ define servicegroup {
 
 
 ENDOFTEXT;
+	}				// End of Are there any services??
 
 
 

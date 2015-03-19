@@ -106,7 +106,7 @@ if ( ! property_exists( $configJSON->accountsByName->$customerProfile, $appStack
 	exit( STATE_UNKNOWN );
 }
 
-foreach( array( "customerShortName", "customerLongName", "tagFilters" ) as $testThis ) {	// Validate these
+foreach( array( "customerShortName", "customerLongName", "tagFilters", "applicationSites" ) as $testThis ) {	// Validate these
 	if ( ! property_exists( $configJSON->accountsByName->$customerProfile->$appStack, $testThis ) ) {
 		print "Error: Missing \"$testThis\" in $configFile accountsByName->$customerProfile->$appStack\n" ;
 		exit( STATE_UNKNOWN );
@@ -269,6 +269,7 @@ ENDOFTEXT;
 // Hosts
 
 $totalInstancesHosts = 0 ;
+$allInstanceIDs = array() ;	// Init to null
 
 // Build the EC2 Instances structure
 foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
@@ -305,6 +306,7 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 
 }
 
+// var_dump( $allInstanceIDs ) ;	// Debugging output
 
 // Build a hash table - quick way to get a set of unique host names
 // Key: "host" name
@@ -336,6 +338,8 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 	}
 }
 
+// var_dump( $allHostNames ) ;	// Debugging output
+// var_dump( $allSiteNames ) ;	// Debugging output
 
 // Alternative way of doing the 'foreach'
 // See http://php.net/manual/en/function.key.php
@@ -366,6 +370,22 @@ foreach ( $allHostNames as $hostName => $hostNameFrom ) {
 		continue ;
 	}
 
+	// Go get the contact_group by looping through the data structure to find the site ID for that host name, then 
+	// we know which site to reference to get the contact group.
+	foreach( $allSiteNames as $siteName => $allHostNamesFromSites ) {
+		foreach( $allHostNamesFromSites as $hostNameFromSites => $garbage ) {	// The value doesn't matter, only the key name
+			if ( $hostNameFromSites == $hostName ) {
+				foreach( $configJSON->accountsByName->$customerProfile->$appStack->applicationSites as $applicationSiteInstance ) {
+					if ( $applicationSiteInstance->websiteHostName == $siteName ) {
+						$nagiosContactGroupAlarms = $applicationSiteInstance->nagiosContactGroupAlarms ;
+// 						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
+						break ;
+					}
+				}
+			}
+		}
+	}
+
 	echo <<<ENDOFTEXT
 define host {
 	use			aws-host-CloudFront-Alarm-$customerShortName
@@ -388,6 +408,7 @@ ENDOFTEXT;
 // Services
 
 $totalServices = 0 ;
+$nagiosContactGroupAlarms = $defaultContactGroup ;	// Reset to the default since it was probably used in the Hosts section. This should be replaced per-site later.
 
 print "###############################################################################\n" ;
 print "# Services\n\n" ;

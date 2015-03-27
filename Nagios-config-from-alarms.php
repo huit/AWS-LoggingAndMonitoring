@@ -284,21 +284,22 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 			if ( $ec2InstanceTag->Key == "aws:cloudformation:stack-name" ) {
 				$siteID = $ec2InstanceTag->Value ;
 			}
+			if ( $ec2InstanceTag->Key == "SiteID" ) {
+				$siteID = $ec2InstanceTag->Value ;
+			}
 			if ( $ec2InstanceTag->Key == "Name" ) {
 				$instanceName = $ec2InstanceTag->Value ;
 			}
 		}
 
 		if ( ! isset( $siteID ) || $siteID == "" || ! isset( $instanceName ) || $instanceName == "" ) {
-			print "# Skipping instance $instanceID named \"$instanceName\" - found no stack name from Tag \"aws:cloudformation:stack-name\"\n" ;
+			print "# Skipping instance $instanceID named \"$instanceName\" - found no stack name from Tags!\n" ;
 			continue ;
 		}
 
-		$allInstanceIDs[ $instanceID ][ "PublicIpAddress" ] 	= $ec2Instance->PublicIpAddress ;
-		$allInstanceIDs[ $instanceID ][ "PublicDnsName" ] 	= $ec2Instance->PublicDnsName ;
+		$allInstanceIDs[ $instanceID ][ "siteID" ] 		= $siteID ;
 		$allInstanceIDs[ $instanceID ][ "LaunchTime" ] 		= $ec2Instance->LaunchTime ;
 		$allInstanceIDs[ $instanceID ][ "Name" ] 		= $instanceName ;
-		$allInstanceIDs[ $instanceID ][ "siteID" ] 		= $siteID ;
 
 		$totalInstancesHosts++ ;
 	}
@@ -376,9 +377,9 @@ foreach ( $allHostNames as $hostName => $hostNameFrom ) {
 		foreach( $allHostNamesFromSites as $hostNameFromSites => $garbage ) {	// The value doesn't matter, only the key name
 			if ( $hostNameFromSites == $hostName ) {
 				foreach( $configJSON->accountsByName->$customerProfile->$appStack->applicationSites as $applicationSiteInstance ) {
-					if ( $applicationSiteInstance->websiteHostName == $siteName ) {
+					if ( str_replace( "-", ".", $applicationSiteInstance->websiteHostName ) == $siteName ) {
 						$nagiosContactGroupAlarms = $applicationSiteInstance->nagiosContactGroupAlarms ;
-// 						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
+						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
 						break ;
 					}
 				}

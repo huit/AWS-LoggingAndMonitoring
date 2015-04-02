@@ -71,6 +71,10 @@ include_once( dirname( __FILE__ ) . '/utils.php' );
 // Load our configuration data
 $configFile = dirname( __FILE__ ) . '/AWS_config.json' ;
 $configJSON = json_decode( file_get_contents( $configFile ) ) ;
+if ( ! isset( $configJSON ) || $configJSON == "" ) {
+	print "Error: No JSON returned for config file $configFile\n" ;
+	exit( STATE_UNKNOWN );
+}
 
 $commandOptions = getopt( "h", array( "appStack:", "profile:", "help" ) ) ;
 if ( isset( $commandOptions[ "h" ] ) || isset( $commandOptions[ "help" ] ) ) {
@@ -139,7 +143,7 @@ if ( sizeof( $alarmsJSON->MetricAlarms ) < 1 ) {
 }
 // =============================================================================================
 
-// Don't bother looking at anything other than the first one. 
+// Don't bother looking at anything other than the first one.
 // We'll assume it's all the same region.
 $regionExploded = explode( ":", $alarmsJSON->MetricAlarms[ 0 ]->AlarmArn ) ;
 $region = $regionExploded[ 3 ] ;
@@ -320,11 +324,12 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
 	foreach( $alarmInstance->AlarmActions as $alarmAction ) {
 		if ( preg_match( "/nagios/i", $alarmAction ) ) {	// Only if it's a Nagios action!
+
 			$webSiteNameExploded = explode( " ", $alarmInstance->AlarmName ) ;
-			$webSiteName = $webSiteNameExploded[ 0 ] ;
-			$webSiteName = str_replace( "-", ".", $webSiteName ) ;
-			$hostName = $webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
-			
+			$webSiteName = 	$webSiteNameExploded[ 0 ] ;
+			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
+			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
+
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
 					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
@@ -332,7 +337,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 					continue ;
 				}
 			}
-			
+
 			$allHostNames[ $hostName ] = $alarmInstance->Namespace . ":" . $alarmInstance->Dimensions[ 0 ]->Name ;
 			$allSiteNames[ $webSiteName ][ $hostName ] = true ;
 		}
@@ -360,8 +365,9 @@ print "# $statsLeadingText AWS MetricAlarms: " . sizeof( $alarmsJSON->MetricAlar
 print "# $statsLeadingText Nagios AWS \"Hosts\": " . sizeof( $allHostNames ) . "\n\n";
 print "# Note: Host Groups added here are defined in hostgroups.cfg for use in other non-dynamic config files.\n\n\n";
 
-foreach ( $allHostNames as $hostName => $hostNameFrom ) {
+foreach( $allHostNames as $hostName => $hostNameFrom ) {
 
+	$nagiosContactGroupAlarms = $defaultContactGroup ;	// Need to set the default each time in case we don't find one in the applicationSites below
 	$hostList .= $hostName . ",";
 	list( $partOne, $partTwo, $discard ) = preg_split( '/[\.:]/', $hostName, 3 ) ;
 	$shortSiteName = $partOne . "." . $partTwo ;
@@ -371,13 +377,13 @@ foreach ( $allHostNames as $hostName => $hostNameFrom ) {
 		continue ;
 	}
 
-	// Go get the contact_group by looping through the data structure to find the site ID for that host name, then 
+	// Go get the contact_group by looping through the data structure to find the site ID for that host name, then
 	// we know which site to reference to get the contact group.
 	foreach( $allSiteNames as $siteName => $allHostNamesFromSites ) {
 		foreach( $allHostNamesFromSites as $hostNameFromSites => $garbage ) {	// The value doesn't matter, only the key name
 			if ( $hostNameFromSites == $hostName ) {
 				foreach( $configJSON->accountsByName->$customerProfile->$appStack->applicationSites as $applicationSiteInstance ) {
-					if ( str_replace( "-", ".", $applicationSiteInstance->websiteHostName ) == $siteName ) {
+					if ( property_exists( $applicationSiteInstance, "websiteHostName" ) && str_replace( "-", ".", $applicationSiteInstance->websiteHostName ) == $siteName ) {
 						$nagiosContactGroupAlarms = $applicationSiteInstance->nagiosContactGroupAlarms ;
 						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
 						break ;
@@ -420,11 +426,12 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 		if ( preg_match( "/nagios/i", $alarmAction ) ) {	// Only if it's a Nagios action!
 
 			$webSiteNameExploded = explode( " ", $alarmInstance->AlarmName ) ;
-			$webSiteName =    $webSiteNameExploded[ 0 ] ;
-			$webSiteName =    str_replace( "-", ".", $webSiteName ) ;
-			$instanceName =   $alarmInstance->Dimensions[ 0 ]->Value ;
-			$hostName = 	  $webSiteName . ":" . $instanceName ;
-			$serviceName = 	  $alarmInstance->MetricName ;
+			$webSiteName = 	$webSiteNameExploded[ 0 ] ;
+			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
+			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
+
+			$instanceName = $alarmInstance->Dimensions[ 0 ]->Value ;
+			$serviceName = 	$alarmInstance->MetricName ;
 
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {

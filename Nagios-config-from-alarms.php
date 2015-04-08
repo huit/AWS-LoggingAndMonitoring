@@ -4,7 +4,7 @@
 // =============================================================================================
 // Nagios-config-from-alarms.php
 //
-// By Stefan Wuensch stefan_wuensch@harvard.edu September 2014
+// By Stefan Wuensch stefan_wuensch@harvard.edu Fall 2014 - Spring 2015
 //
 // Usage:
 // Nagios-config-from-alarms.php --appStack string --profile string [ -h ] [ --help ]
@@ -204,7 +204,7 @@ echo <<<ENDOFTEXT
 
 ENDOFTEXT;
 
-echo "# " . $myName . "\n# by Stefan Wuensch, Summer 2014\n\n";
+echo "# " . $myName . "\n# by Stefan Wuensch, 2014 - 2015\n\n";
 
 print "# This config file generated: " . date("Y-m-d H:i:s") . "\n\n" ;
 
@@ -317,8 +317,9 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 // Key: "host" name
 // Value: the name of the attribute that is giving us the name
 
-$allSiteNames = array() ;	// Init to null
-$allHostNames = array() ;	// Init to null
+$allSiteNames = array() ;		// Init to null
+$allHostNames = array() ;		// Init to null
+$hostToContactgroupMapping = array() ;	// Init to null
 
 foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
@@ -372,11 +373,6 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 	list( $partOne, $partTwo, $discard ) = preg_split( '/[\.:]/', $hostName, 3 ) ;
 	$shortSiteName = $partOne . "." . $partTwo ;
 
-	if ( $hostNameFrom == "AWS/EC2:InstanceId" ) {
-		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script. \n# Skipping host \"$hostName\" here.\n\n\n" ;
-		continue ;
-	}
-
 	// Go get the contact_group by looping through the data structure to find the site ID for that host name, then
 	// we know which site to reference to get the contact group.
 	foreach( $allSiteNames as $siteName => $allHostNamesFromSites ) {
@@ -386,11 +382,17 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 					if ( property_exists( $applicationSiteInstance, "websiteHostName" ) && str_replace( "-", ".", $applicationSiteInstance->websiteHostName ) == $siteName ) {
 						$nagiosContactGroupAlarms = $applicationSiteInstance->nagiosContactGroupAlarms ;
 						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
+						$hostToContactgroupMapping[ $hostNameFromSites ][ "contact_groups" ] = $nagiosContactGroupAlarms ;	// Build an association between the host name and the contact group for quick access when we do Services.
 						break ;
 					}
 				}
 			}
 		}
+	}
+
+	if ( $hostNameFrom == "AWS/EC2:InstanceId" ) {
+		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script. \n# Skipping host \"$hostName\" here.\n\n\n" ;
+		continue ;
 	}
 
 	echo <<<ENDOFTEXT
@@ -409,7 +411,7 @@ ENDOFTEXT;
 
 }
 
-
+// var_dump( $hostToContactgroupMapping ) ;	// Debugging output
 
 ////////////////////////////////////////////////////////////////////////////////
 // Services
@@ -442,7 +444,11 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			}
 
 			$hostNameFrom =   $alarmInstance->Dimensions[ 0 ]->Name ;
-			$serviceExtInfo = $alarmInstance->AlarmDescription ;
+			if ( isset( $alarmInstance->AlarmDescription ) ) {
+				$serviceExtInfo = $alarmInstance->AlarmDescription ;
+			} else {
+				$serviceExtInfo = "(No \"AlarmDescription\" found for this CloudWatch Alarm)" ;
+			}
 			$namespace =      $alarmInstance->Namespace ;
 
 			$serviceList .= $hostName . "," . $serviceName . ",";
@@ -486,6 +492,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 					. "#alarm:alarmFilter=ANY%3Bname="
 					. rawurlencode( rawurlencode( $alarmInstance->AlarmName ) ) ;
 
+			$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
 
 			echo <<<ENDOFTEXT
 define service {

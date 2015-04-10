@@ -220,7 +220,7 @@ if ( $safeToProcess ) {
 				. " "
 				. $messageJSON->StateChangeTime ;
 
-		$nagiosMessage = "[" . date( U ) . "] PROCESS_SERVICE_CHECK_RESULT;" 
+		$nagiosMessage = "[" . date( "U" ) . "] PROCESS_SERVICE_CHECK_RESULT;" 
 				. $nagiosHostName . ";"
 				. $nagiosServiceName . ";"
 				. $nagiosStatus . ";"

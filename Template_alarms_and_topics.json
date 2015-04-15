@@ -43,10 +43,10 @@
 		"Type": "String"
 	}
 
-//	"DBInstance" : {
-//		"Description" : "The identifier of the RDS instance",
-//		"Type" : "String"
-//	}
+	"DBInstance" : {
+		"Description" : "The identifier of the RDS instance",
+		"Type" : "String"
+	}
 },
 
 "Resources" : {
@@ -348,7 +348,7 @@
     "SNSTopicNagiosInformational" : {
       "Value" : { "Ref" : "HUITNagiosInformational" },
       "Description" : "Drupal Website SNS Topic Nagios Informational"
-    },
+    }
 }
 
 }

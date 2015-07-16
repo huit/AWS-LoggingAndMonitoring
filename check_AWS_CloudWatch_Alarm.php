@@ -74,11 +74,32 @@ if( $debug ){
 list( $sitename, $namespace, $dimensionsName ) 	= preg_split( '/:/', $commandOptions[ "hostData" ], 3 ) ;
 list( $sitename, $dimensionsValue ) 		= preg_split( '/:/', $commandOptions[ "hostName" ], 2 ) ;
 
-$awsReadAlarmCommand =  "aws cloudwatch describe-alarms-for-metric" ;
+// This was the old way to get the alarm data. This assumed that there was only one instance of an alarm with 
+// a particular MetricName for each "--dimensions Name="
+// However, now (2015) that we need to be able to have multiple alarms with the same MetricName, we need to be
+// able to query for something unique. 
+// $awsReadAlarmCommand =  "aws cloudwatch describe-alarms-for-metric" ;
+// $awsReadAlarmCommand .= " --profile " 		. $commandOptions[ "profile" ] ;
+// $awsReadAlarmCommand .= " --metric-name " 	. $commandOptions[ "serviceDescription" ] ;
+// $awsReadAlarmCommand .= " --namespace "		. $namespace ;
+// $awsReadAlarmCommand .= " --dimensions Name=" 	. $dimensionsName . ",Value=" . $dimensionsValue ;
+
+// Here's the new way. This assumes that the Nagios Service name is now built from [ MetricName + ": " + AlarmName ]
+// Example Service Name: "HealthyHostCount: online-learning-harvard-edu Load Balancer Healthy Instance Count 1 Minute"
+// Here we will split on the ": " and take the second element as the query {item} for "describe-alarms --alarm-names {item}"
+// This will always return a single Alarm, because the CloudWatch Alarm Name (AlarmName) is forced to be unique for us!
+
+// First test to make sure we got something that contains ": " which is our manditory delimiter
+if ( ! preg_match( "/: /", $commandOptions[ "serviceDescription" ] ) ) {
+	print "Error - serviceDescription expected to be made up of [ MetricName + \": \" + AlarmName ] \n" ;
+	exit( STATE_UNKNOWN ) ;
+}
+
+// Now break up the serviceDescription and use the second element for our --alarm-names query
+list( $NagiosMetricName, $NagiosAlarmName ) = preg_split( '/: /', $commandOptions[ "serviceDescription" ], 2 ) ;
+$awsReadAlarmCommand =  "aws cloudwatch describe-alarms" ;
 $awsReadAlarmCommand .= " --profile " 		. $commandOptions[ "profile" ] ;
-$awsReadAlarmCommand .= " --metric-name " 	. $commandOptions[ "serviceDescription" ] ;
-$awsReadAlarmCommand .= " --namespace "		. $namespace ;
-$awsReadAlarmCommand .= " --dimensions Name=" 	. $dimensionsName . ",Value=" . $dimensionsValue ;
+$awsReadAlarmCommand .= " --alarm-names \"" 	. $NagiosAlarmName . "\"";
 
 $CloudWatchAlarmsJSON = json_decode( shell_exec( $awsReadAlarmCommand ) ) ;
 

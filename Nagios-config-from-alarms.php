@@ -53,6 +53,8 @@
 // 2014-09-03 - Changed "thing=explode()[ index ]" which works on PHP 5.4 to "thingX=explode(); thing=thingX[ index ]" which works on PHP 5.3. Grr.
 // 2014-09-18 - Excluding Host config generation for AWS/EC2 Instances because we're now building those from Instance data in the other script.
 //		Changed from reading JSON on STDIN to calling AWS CLI
+// 2015-07-16 - Added AlarmName to the creation of serviceName so that serviceName will be unique (since AlarmName already has to be unique):
+// 		$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
 // =============================================================================================
 
 
@@ -433,7 +435,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
 
 			$instanceName = $alarmInstance->Dimensions[ 0 ]->Value ;
-			$serviceName = 	$alarmInstance->MetricName ;
+			$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
 
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {

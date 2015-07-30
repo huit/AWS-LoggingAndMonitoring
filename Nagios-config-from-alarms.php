@@ -491,10 +491,16 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			$notesURL = $awsConsoleURLBase
 					. "cloudwatch/home?region="
 					. $region
-					. "#alarm:alarmFilter=ANY%3Bname="
+// Update 2015-07-28 to current URL format
+// old:					. "#alarm:alarmFilter=ANY%3Bname="
+					. "#c=CloudWatch&s=Alarms&alarm="
 					. rawurlencode( rawurlencode( $alarmInstance->AlarmName ) ) ;
 
-			$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
+			if ( isset( $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ) ) {
+				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
+			} else {
+				print "# Warning: Could not find nagiosContactGroupAlarms in config JSON for $hostName in applicationSites - using default Contact Group $defaultContactGroup\n" ;
+			}
 
 			echo <<<ENDOFTEXT
 define service {

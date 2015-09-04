@@ -212,7 +212,7 @@ if ( $safeToProcess ) {
 		$webSiteName = $alarmNameExploded[ 0 ] ;
 		$webSiteName = str_replace( "-", ".", $webSiteName ) ;
 		$nagiosHostName = $webSiteName . ":" . $messageJSON->Trigger->Dimensions[ 0 ]->value ;
-		$nagiosServiceName = $messageJSON->Trigger->MetricName ;
+		$nagiosServiceName = $messageJSON->Trigger->MetricName . ": " . $messageJSON->AlarmName ;	// Updated 2015-08-28 to match the new format from ~nagios/libexec/FAS/Nagios-config-from-alarms.php line 452 -- Stefan
 
 		$nagiosStatusInfo = $alarmNameExploded[ 1 ]
 				. ": "

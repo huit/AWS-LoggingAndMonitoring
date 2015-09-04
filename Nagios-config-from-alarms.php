@@ -181,10 +181,12 @@ if ( ! isset( $EC2InstancesJSON ) || $EC2InstancesJSON == "" ) {
 	print "Error - no JSON data returned from \"$awsReadEC2InstancesCommand\"\n" ;
 	exit( STATE_UNKNOWN ) ;
 }
-if ( sizeof( $EC2InstancesJSON->Reservations ) < 1 ) {
-	print "Error: Got no valid data back from \"aws ec2 describe-tags\" for the filter ( $filters)\n" ;
-	exit( STATE_UNKNOWN ) ;
-}
+
+// Commented this out 2015-08-17 - not sure if we need to have any EC2 instances present.
+// if ( sizeof( $EC2InstancesJSON->Reservations ) < 1 ) {
+// 	print "Error: Got no valid data back from \"aws ec2 describe-tags\" for the filter ( $filters)\n" ;
+// 	exit( STATE_UNKNOWN ) ;
+// }
 // =============================================================================================
 
 
@@ -328,8 +330,14 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 	foreach( $alarmInstance->AlarmActions as $alarmAction ) {
 		if ( preg_match( "/nagios/i", $alarmAction ) ) {	// Only if it's a Nagios action!
 
-			$webSiteNameExploded = explode( " ", $alarmInstance->AlarmName ) ;
-			$webSiteName = 	$webSiteNameExploded[ 0 ] ;
+			$webSiteNameExploded = explode( " ", $alarmInstance->AlarmName ) ;	// Break the Alarm Name by spaces into an array.
+			if ( preg_match( "/[\.:-]/", $webSiteNameExploded[ 0 ] ) ) {		// If there is a period and/or colon and/or hyphen,
+				$webSiteName = $webSiteNameExploded[ 0 ] ;			// then assume we have something in the first element like a FQDN or site name we can use.
+			} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
+				$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
+			} else {
+				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name" ;		// As a last resort, make up something that will still work when we split it later.
+			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
 
@@ -429,8 +437,14 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 	foreach( $alarmInstance->AlarmActions as $alarmAction ) {
 		if ( preg_match( "/nagios/i", $alarmAction ) ) {	// Only if it's a Nagios action!
 
-			$webSiteNameExploded = explode( " ", $alarmInstance->AlarmName ) ;
-			$webSiteName = 	$webSiteNameExploded[ 0 ] ;
+			$webSiteNameExploded = explode( " ", $alarmInstance->AlarmName ) ;	// Break the Alarm Name by spaces into an array.
+			if ( preg_match( "/[\.:-]/", $webSiteNameExploded[ 0 ] ) ) {		// If there is a period and/or colon and/or hyphen,
+				$webSiteName = $webSiteNameExploded[ 0 ] ;			// then assume we have something in the first element like a FQDN or site name we can use.
+			} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
+				$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
+			} else {
+				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name" ;		// As a last resort, make up something that will still work when we split it later.
+			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
 

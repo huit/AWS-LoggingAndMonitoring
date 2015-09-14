@@ -514,6 +514,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
 			} else {
 				print "# Warning: Could not find nagiosContactGroupAlarms in config JSON for $hostName in applicationSites - using default Contact Group $defaultContactGroup\n" ;
+				$nagiosContactGroupAlarms = $defaultContactGroup ;
 			}
 
 			echo <<<ENDOFTEXT

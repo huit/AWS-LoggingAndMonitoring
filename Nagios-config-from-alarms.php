@@ -4,7 +4,7 @@
 // =============================================================================================
 // Nagios-config-from-alarms.php
 //
-// By Stefan Wuensch stefan_wuensch@harvard.edu Fall 2014 - Spring 2015
+// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015
 //
 // Usage:
 // Nagios-config-from-alarms.php --appStack string --profile string [ -h ] [ --help ]
@@ -212,7 +212,9 @@ echo "# " . $myName . "\n# by Stefan Wuensch, 2014 - 2015\n\n";
 
 print "# This config file generated: " . date("Y-m-d H:i:s") . "\n\n" ;
 
-print "# Input to this script was: " . $configFile . "\n\n" ;
+print "# Config input to this script was: " . $configFile . "\n\n" ;
+
+print "# Arguments passed to generate this config: --profile=" . $customerProfile . " --appStack=" . $appStack . "\n\n";
 
 $statsLeadingText = "Total number of" ;
 print "# Note: Search this file for the string \"$statsLeadingText\" to see statistics on the number of objects.\n\n\n" ;
@@ -227,6 +229,7 @@ print "# Note: Search this file for the string \"$statsLeadingText\" to see stat
 // the hosts.cfg and services.cfg
 
 echo <<<ENDOFTEXT
+###############################################################################
 ###############################################################################
 # Templates
 
@@ -369,6 +372,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
 
 print "###############################################################################\n" ;
+print "###############################################################################\n" ;
 print "# Hosts\n\n" ;
 
 print "# $statsLeadingText websites: " . sizeof( $allSiteNames ) . "\n";
@@ -378,8 +382,8 @@ print "# Note: Host Groups added here are defined in hostgroups.cfg for use in o
 
 foreach( $allHostNames as $hostName => $hostNameFrom ) {
 
+	$skipHostNotInConfig = "" ;				// A flag for whether or not we have a matching config file entry. If not, we're not going to write a Nagios config for it.
 	$nagiosContactGroupAlarms = $defaultContactGroup ;	// Need to set the default each time in case we don't find one in the applicationSites below
-	$hostList .= $hostName . ",";
 	list( $partOne, $partTwo, $discard ) = preg_split( '/[\.:]/', $hostName, 3 ) ;
 	$shortSiteName = $partOne . "." . $partTwo ;
 
@@ -393,12 +397,22 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 						$nagiosContactGroupAlarms = $applicationSiteInstance->nagiosContactGroupAlarms ;
 						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
 						$hostToContactgroupMapping[ $hostNameFromSites ][ "contact_groups" ] = $nagiosContactGroupAlarms ;	// Build an association between the host name and the contact group for quick access when we do Services.
+						$skipHostNotInConfig = "" ;	// If we did find it, make sure we don't skip over it on the output!
 						break ;
+					} else {
+						$skipHostNotInConfig = "Y" ;	// If it's not matched by any config entry, we shouldn't be generating a config for it.
 					}
 				}
 			}
 		}
 	}
+
+	if ( $skipHostNotInConfig == "Y" ) {
+		print "# NOTE: Skipping \"host\" name \"$hostName\" for $customerShortName \n# because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
+		continue ;
+	}
+
+	$hostList .= $hostName . ",";
 
 	if ( $hostNameFrom == "AWS/EC2:InstanceId" ) {
 		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script. \n# Skipping host \"$hostName\" here.\n\n\n" ;
@@ -467,9 +481,6 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			}
 			$namespace =      $alarmInstance->Namespace ;
 
-			$serviceList .= $hostName . "," . $serviceName . ",";
-			$totalServices++ ;
-
 			switch ( $namespace ) {
 				case "AWS/RDS" :
 					$actionURL = $awsConsoleURLBase
@@ -513,9 +524,13 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			if ( isset( $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ) ) {
 				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
 			} else {
-				print "# Warning: Could not find nagiosContactGroupAlarms in config JSON for $hostName in applicationSites - using default Contact Group $defaultContactGroup\n" ;
-				$nagiosContactGroupAlarms = $defaultContactGroup ;
+				print "# NOTE: Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\".\n" ;
+				print "# Skipping $serviceName\n\n\n" ;
+				continue ;
 			}
+
+			$serviceList .= $hostName . "," . $serviceName . ",";
+			$totalServices++ ;
 
 			echo <<<ENDOFTEXT
 define service {

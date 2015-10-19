@@ -326,6 +326,7 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 
 $allSiteNames = array() ;		// Init to null
 $allHostNames = array() ;		// Init to null
+$skipHostNames = array() ;		// Init to null
 $hostToContactgroupMapping = array() ;	// Init to null
 
 foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
@@ -398,9 +399,11 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
 						$hostToContactgroupMapping[ $hostNameFromSites ][ "contact_groups" ] = $nagiosContactGroupAlarms ;	// Build an association between the host name and the contact group for quick access when we do Services.
 						$skipHostNotInConfig = "" ;	// If we did find it, make sure we don't skip over it on the output!
+						$skipHostNames[ $hostName ] = "N" ;	// Flag it as to-be-skipped for later use outside these loops
 						break ;
 					} else {
 						$skipHostNotInConfig = "Y" ;	// If it's not matched by any config entry, we shouldn't be generating a config for it.
+						$skipHostNames[ $hostName ] = "Y" ;	// Flag it as to-be-skipped for later use outside these loops
 					}
 				}
 			}
@@ -435,6 +438,8 @@ ENDOFTEXT;
 
 }
 
+// var_dump( $allHostNames ) ;	// Debugging output
+// var_dump( $skipHostNames ) ;	// Debugging output
 // var_dump( $hostToContactgroupMapping ) ;	// Debugging output
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -589,8 +594,17 @@ foreach( $allSiteNames as $siteName => $allHostNames ) {
 	$hostList = "" ;
 
 	foreach( $allHostNames as $hostName => $garbage ) {	// The value doesn't matter, only the key name
-		$hostList .= $hostName . ",";
+		if ( isset( $skipHostNames[ $hostName ] ) && $skipHostNames[ $hostName ] == "Y" ) {
+			continue ;	// Skip if we didn't find it in the config file earlier.
+		} else {
+			$hostList .= $hostName . ",";
+		}
 	}
+
+	if ( $hostList == "" ) {	// If there's nothing for this site, on to the next one.
+		continue ;
+	}
+
 	$hostList = rtrim( $hostList, "," ) ; // Trim off the last comma
 
 	echo <<<ENDOFTEXT

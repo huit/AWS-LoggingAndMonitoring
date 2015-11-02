@@ -256,7 +256,7 @@ define service {
 	retry_check_interval		15
 	notification_interval		30
 	max_check_attempts		1
-	event_handler			submit_AWS_config_refresh!$nagiosMasterName!"Nagios configuration for $customerShortName AWS CloudWatch Alarms out-of-sync"!\$SERVICESTATE:$nagiosMasterName:Nagios configuration for $customerShortName AWS CloudWatch Alarms out-of-sync$!\$LASTSERVICECHECK:$nagiosMasterName:Nagios configuration for $customerShortName AWS CloudWatch Alarms out-of-sync$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$
+	event_handler			submit_AWS_config_refresh!$nagiosMasterName!"Nagios config in sync - $customerShortName AWS CloudWatch Alarms"!\$SERVICESTATE:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$LASTSERVICECHECK:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$
 	register			0
 # Enable these two (and comment out check_command above) if you want to do purely Passive checks, incoming SNS from AWS Cloudwatch.
 # (However, don't edit this dynamic config file! Do it in $myName)

@@ -55,6 +55,8 @@ if( $logToFile ){
 	$logFH = fopen($logFile, 'a') or die("Log File Cannot Be Opened.");
 	fwrite( $logFH, "==============================================================================================================\n" ) ;
 	fwrite( $logFH, __FILE__ . " " . date("Y-m-d H:i:s") . "\n\n" ) ;
+	fwrite( $logFH, "Environment REMOTE_ADDR: "     . getenv('REMOTE_ADDR')     . "\n" ) ;
+	fwrite( $logFH, "Environment HTTP_USER_AGENT: " . getenv('HTTP_USER_AGENT') . "\n\n" ) ;
 }
 
 

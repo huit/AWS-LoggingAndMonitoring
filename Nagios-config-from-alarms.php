@@ -4,7 +4,7 @@
 // =============================================================================================
 // Nagios-config-from-alarms.php
 //
-// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015
+// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015 - 2016
 //
 // Usage:
 // Nagios-config-from-alarms.php --appStack string --profile string [ -h ] [ --help ]
@@ -55,6 +55,8 @@
 //		Changed from reading JSON on STDIN to calling AWS CLI
 // 2015-07-16 - Added AlarmName to the creation of serviceName so that serviceName will be unique (since AlarmName already has to be unique):
 // 		$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
+// 2016-10-19 - Added "Actual Alarm Evaluation Period" to the Service Notes - see comments above $evaluationPeriodMinutes
+// 2016-10-31 - Added "AWS Account" to Host and Service Notes, and added AWS Console URL as notes_url on Host
 // =============================================================================================
 
 
@@ -429,6 +431,8 @@ define host {
 	_AWS_Data		$shortSiteName:$hostNameFrom
 	hostgroups		$customerShortName in AWS - All
 	contact_groups		$nagiosContactGroupAlarms
+	notes			AWS Account <a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>
+	notes_url		https://$customerProfile.signin.aws.amazon.com/console
 }
 
 
@@ -492,8 +496,8 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 							. "rds/home?region="
 							. $region
 							. "#dbinstances:id="
-							. $instanceName
-							. "%3Bsf=all" ;
+							. $instanceName ;
+// 							. "%3Bsf=all" ;		// Disabled this 2016-08-08 - it seems to not be needed, and the urlencoded ';' doesn't seem to be decoded by Chrome
 					break ;
 
 				case "AWS/ELB" :
@@ -509,6 +513,14 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 							. "ec2/v2/home?region="
 							. $region
 							. "#Instances:search="
+							. $instanceName ;
+					break ;
+
+				case "AWS/AutoScaling" :
+					$actionURL = $awsConsoleURLBase
+							. "ec2/autoscaling/home?region="
+							. $region
+							. "#AutoScalingGroups:id="
 							. $instanceName ;
 					break ;
 
@@ -537,13 +549,23 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			$serviceList .= $hostName . "," . $serviceName . ",";
 			$totalServices++ ;
 
+			// Added this 2016-10-19 to make it clear what the real evaluation period is... because
+			// the CloudFormation Template is limited in what it can put in the AlarmDescription...
+			// plus there was a bug in the template that assumed the Period was always 60 sec.
+			$evaluationPeriodMinutes = "unknown" ;	// Just in case the next assignment fails for some reason.
+			$evaluationPeriodMinutes = ( $alarmInstance->EvaluationPeriods * $alarmInstance->Period ) / 60 ;
+			$evaluationPeriodMinutesUnit = "minute" ;
+			if ( $evaluationPeriodMinutes != "unknown" && $evaluationPeriodMinutes >= 2 ) {
+				$evaluationPeriodMinutesUnit .= "s" ;
+			}
+
 			echo <<<ENDOFTEXT
 define service {
 	use				aws-service-CloudFront-Alarm-$customerShortName
 	host_name			$hostName
 	service_description		$serviceName
 	contact_groups			$nagiosContactGroupAlarms
-	notes				$serviceExtInfo ($hostNameFrom = $hostName, AlarmName = $alarmInstance->AlarmName, Namespace = $namespace)
+	notes				$serviceExtInfo ($hostNameFrom = $hostName, AlarmName = $alarmInstance->AlarmName, Namespace = $namespace, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>)
 	notes_url			$notesURL
 	action_url			$actionURL
 }
@@ -610,7 +632,7 @@ foreach( $allSiteNames as $siteName => $allHostNames ) {
 	echo <<<ENDOFTEXT
 define hostgroup {
 	hostgroup_name	$customerShortName in AWS - site $siteName
-	alias		$siteName $customerLongName AWS Incoming SNS
+	alias		$siteName $customerLongName
 	members		$hostList
 }
 

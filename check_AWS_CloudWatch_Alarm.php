@@ -6,7 +6,7 @@
 // By Stefan Wuensch stefan_wuensch@harvard.edu 2014-08-21
 //
 // Usage: 
-// check_AWS_CloudWatch_Alarm.php [ -h ] [ -v ] --hostName string --hostData string --serviceDescription string [ --help ]
+// check_AWS_CloudWatch_Alarm.php [ -h ] [ -v ] --hostName string --hostData string --serviceDescription string --profile string [ --help ]
 //
 // This Nagios plugin makes a call to AWS using the AWS command-line tools. It queries AWS for the specific
 // CloudWatch Alarm that represents the Nagios Host and Service. The Alarm StateValue is used to determine
@@ -52,27 +52,32 @@ foreach( array( "hostName", "hostData", "serviceDescription", "profile" ) as $te
 	}
 }
 
+list( $sitename, $namespace, $dimensionsName ) 	= preg_split( '/:/', $commandOptions[ "hostData" ], 3 ) ;
+list( $sitename, $dimensionsValue ) 		= preg_split( '/:/', $commandOptions[ "hostName" ], 2 ) ;
+
 if( $debug ){
 	////LOG TO FILE:
 	$dateString = date("Y-m-d");
-	$logFile = "/var/tmp/cloudwatch/" . $dateString . "_r.txt";
+	$safeNamespace = str_replace( "AWS/", "", $namespace ) ;	// Can't have a slash in a UNIX log file name, and 'AWS' is obvious!
+// 	$logFile = "/var/tmp/cloudwatch/" . $dateString . "_" . $commandOptions[ "profile" ] . "_" . $safeNamespace . ".txt";	// File name specific to namespace being monitored
+	$logFile = "/var/tmp/cloudwatch/" . $dateString . "_" . $commandOptions[ "profile" ] . ".txt";
 
+	// Any exit() call after this should be preceeded by fclose( $logFH ) if $debug
 	$logFH = fopen($logFile, 'a') or die("Log File Cannot Be Opened.");
 	fwrite( $logFH, "==============================================================================================================\n" ) ;
 	fwrite( $logFH, __FILE__ . " " . date("Y-m-d H:i:s") . "\n\n" ) ;
 
-	ob_start();
-	var_dump( $argv );
-	$contents = ob_get_contents();
-	ob_end_clean();
-	fwrite( $logFH, $contents . "\n" );
+	// Enable this to see $argv in the log file.
+// 	fwrite( $logFH, "ARGV:\n" ) ;
+// 	ob_start();
+// 	var_dump( $argv );
+// 	$contents = ob_get_contents();
+// 	ob_end_clean();
+// 	fwrite( $logFH, $contents . "\n" );
 }
 
 // Example that works as of 2014-08-21:
 // aws cloudwatch describe-alarms-for-metric --profile hwp --metric-name Latency --namespace AWS/ELB --dimensions Name=LoadBalancerName,Value=HPACWWWPr-ElasticL-JZF3JWQ62LQC
-
-list( $sitename, $namespace, $dimensionsName ) 	= preg_split( '/:/', $commandOptions[ "hostData" ], 3 ) ;
-list( $sitename, $dimensionsValue ) 		= preg_split( '/:/', $commandOptions[ "hostName" ], 2 ) ;
 
 // This was the old way to get the alarm data. This assumed that there was only one instance of an alarm with 
 // a particular MetricName for each "--dimensions Name="
@@ -91,35 +96,61 @@ list( $sitename, $dimensionsValue ) 		= preg_split( '/:/', $commandOptions[ "hos
 
 // First test to make sure we got something that contains ": " which is our manditory delimiter
 if ( ! preg_match( "/: /", $commandOptions[ "serviceDescription" ] ) ) {
-	print "Error - serviceDescription expected to be made up of [ MetricName + \": \" + AlarmName ] \n" ;
+	$errorOut = "Error - serviceDescription expected to be made up of [ MetricName + \": \" + AlarmName ] \n" ;
+	print $errorOut ;
+	if( $debug ){
+		fwrite( $logFH, $errorOut ) ;
+		fclose( $logFH ) ;
+	}
 	exit( STATE_UNKNOWN ) ;
 }
 
 // Now break up the serviceDescription and use the second element for our --alarm-names query
 list( $NagiosMetricName, $NagiosAlarmName ) = preg_split( '/: /', $commandOptions[ "serviceDescription" ], 2 ) ;
 $awsReadAlarmCommand =  "aws cloudwatch describe-alarms" ;
-$awsReadAlarmCommand .= " --profile " 		. $commandOptions[ "profile" ] ;
 $awsReadAlarmCommand .= " --alarm-names \"" 	. $NagiosAlarmName . "\"";
+$awsReadAlarmCommand .= " --profile " 		. $commandOptions[ "profile" ] ;
+
+if ( $debug ) {
+	fwrite( $logFH, "AWS CLI command:\n" . $awsReadAlarmCommand . "\n\n" ) ;
+}
 
 $CloudWatchAlarmsJSON = json_decode( shell_exec( $awsReadAlarmCommand ) ) ;
 
-if ( $debug ) {
-	fwrite( $logFH, $awsReadAlarmCommand . "\n\n" ) ;
+// Dump to log file the entire JSON object we got from the CLI call.
+if ( $debug && ! is_null( $CloudWatchAlarmsJSON ) && $CloudWatchAlarmsJSON != "" ) {
+	fwrite( $logFH, "AWS CLI JSON output:\n" ) ;
+	ob_start();
+	print_r( $CloudWatchAlarmsJSON );
+	$output = ob_get_clean();
+	fwrite ( $logFH, $output . "\n\n" );
 }
 
 // Check for getting something back!
 if ( ! isset( $CloudWatchAlarmsJSON ) || $CloudWatchAlarmsJSON == "" ) {
-	print "Error - no JSON data returned from \"$awsReadAlarmCommand\"\n" ;
+	$errorOut = "Error - no JSON data returned from \"$awsReadAlarmCommand\"\n" ;
+	print $errorOut ;
 	if( $debug ){
-		fwrite( $logFH, "Error - no JSON data returned from \"$awsReadAlarmCommand\"\n" ) ;
+		fwrite( $logFH, $errorOut ) ;
+		fclose( $logFH ) ;
 	}
 	exit( STATE_UNKNOWN ) ;
 }
 
 // If we got more than one match, that's a problem!
 if ( sizeof( $CloudWatchAlarmsJSON->MetricAlarms ) != 1 ) {
-	print "Error: Found " . sizeof( $CloudWatchAlarmsJSON->MetricAlarms ) . " MetricAlarms from " . $awsReadAlarmCommand . "\n" ;
+	$errorOut = "Error - Found " . sizeof( $CloudWatchAlarmsJSON->MetricAlarms ) . " MetricAlarms from \"" . $awsReadAlarmCommand . "\"\n" ;
+	print $errorOut ;
+	if( $debug ){
+		fwrite( $logFH, $errorOut ) ;
+		fclose( $logFH ) ;
+	}
 	exit( STATE_UNKNOWN ) ;
+}
+
+// We are not doing any debug log output after this, so close out the FH.
+if( $debug ){
+	fclose( $logFH ) ;
 }
 
 $alarmInstance = $CloudWatchAlarmsJSON->MetricAlarms[ 0 ] ;
@@ -163,7 +194,7 @@ exit( $nagiosStatus ) ;
 function usage() {
 
 	print "Usage: \n" ;
-	print __FILE__ . " [ -h ] [ -v ] --hostName string --hostData string --serviceDescription string [ --help ]\n" ;
+	print __FILE__ . " [ -h ] [ -v ] --hostName string --hostData string --serviceDescription string --profile string [ --help ]\n" ;
 
 }
 //=============================================================================

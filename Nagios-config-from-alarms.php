@@ -4,7 +4,7 @@
 // =============================================================================================
 // Nagios-config-from-alarms.php
 //
-// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015 - 2016
+// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015 - 2016 - 2017
 //
 // Usage:
 // Nagios-config-from-alarms.php --appStack string --profile string [ -h ] [ --help ]
@@ -57,6 +57,7 @@
 // 		$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
 // 2016-10-19 - Added "Actual Alarm Evaluation Period" to the Service Notes - see comments above $evaluationPeriodMinutes
 // 2016-10-31 - Added "AWS Account" to Host and Service Notes, and added AWS Console URL as notes_url on Host
+// 2017-03-22 - Added "service" to the line 546 skipping notification, plus quotes around the service name
 // =============================================================================================
 
 
@@ -542,7 +543,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
 			} else {
 				print "# NOTE: Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\".\n" ;
-				print "# Skipping $serviceName\n\n\n" ;
+				print "# Skipping service \"$serviceName\"\n\n\n" ;
 				continue ;
 			}
 

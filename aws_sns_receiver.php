@@ -22,6 +22,10 @@
 // by Nagios to make sure it's being updated. If SNS messages fail to be delivered, that Nagios 
 // check will notify of the issue. See "AWS incoming SNS messages log: nagios-master-server" on
 // https://nagios.huit.harvard.edu/nagios/cgi-bin/status.cgi?host=nagios-master-server
+// 
+// 2017-04-17: Added retries of fopen() in validateCertificate() in case we don't get the
+// signing cert on the first attempt.
+// 
 
 
 //////
@@ -356,7 +360,7 @@ if ( $logToFile ) {
 	echo $output . "\n" ;
 
 
-   if ( ! is_null( $messageJSON ) && $messageJSON != "" ) {
+   if ( isset( $messageJSON ) && ! is_null( $messageJSON ) && $messageJSON != "" ) {
 	ob_start();
 	print_r( $messageJSON );
 	$output = ob_get_clean();
@@ -378,6 +382,16 @@ function validateCertificate( $keyFileURL, $signatureString, $data ) {
 
 	// fetch certificate from file and ready it
 	$fp = fopen($keyFileURL, "r");
+	// Try twice more in case it fails the first time.
+	if ( $fp == false ) {
+		$fp = fopen($keyFileURL, "r");
+	}
+	if ( $fp == false ) {
+		$fp = fopen($keyFileURL, "r");
+	}
+	if ( $fp == false ) {	// If we still can't retrieve the cert from the given SigningCertURL after 3 tries,
+		return false ;	// all we can do is bail out - otherwise we'll throw all sorts of php warnings.
+	}
 	$cert = fread($fp, 8192);
 	fclose($fp);
 

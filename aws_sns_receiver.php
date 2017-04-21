@@ -65,6 +65,11 @@
 // Clean up code formatting; clean up log output. Fix undfined variable bugs which spewed PHP Notice
 // messages into Apache log. Remove JSON echo back to sender... now just "Message processed successfully."
 // 
+// 2017-04-21: Make the main log file optional, throwing an error to Apache if it can't be opened.
+// Include the non-OK HTTP status in the STDOUT as well as the header. Log & handle an error if the
+// Alarm Name doesn't have at least one space like it supposed to have. Include output to the
+// file being monitored by Nagios for an Alarm notification, in addition to the Scheduled Event type.
+// 
 
 
 
@@ -135,17 +140,19 @@ $HEADER503 = "HTTP/1.1 503 Service Unavailable" ;	// 503 is our best bet for an 
 $signatureValid = false;
 $safeToProcess = true; //Are Security Criteria Set Above Met? Changed programmatically to false on any security failure.
 
-if ( $logToFile ){
+if ( $logToFile ) {
 	$logFH = fopen( $logFile, 'a' ) ;
-	if ( ! $logFH ) {
-		header( $HEADER503 );
-		fwrite( STDERR, "Error: \"$logFile\" could not be opened!!\n" ) ;
-		exit( 1 ) ;
+
+	if ( $logFH ) {		// Obviously we can't write to the log file unless we successfully opened the file!
+		fwrite( $logFH, "==============================================================================================================\n" ) ;
+		fwrite( $logFH, __FILE__ . " " . date( "Y-m-d H:i:s" ) . "\n\n" ) ;
+		fwrite( $logFH, "Environment REMOTE_ADDR: "     . getenv( 'REMOTE_ADDR' )     . "\n" ) ;
+		fwrite( $logFH, "Environment HTTP_USER_AGENT: " . getenv( 'HTTP_USER_AGENT' ) . "\n\n" ) ;
+
+	} else {		// If we couldn't open the log file, throw an error out to the Apache error log and continue.
+		error_log( __FILE__ . " Error: \"$logFile\" could not be opened!! Continuing without it." ) ;
+		$logToFile = false ;
 	}
-	fwrite( $logFH, "==============================================================================================================\n" ) ;
-	fwrite( $logFH, __FILE__ . " " . date( "Y-m-d H:i:s" ) . "\n\n" ) ;
-	fwrite( $logFH, "Environment REMOTE_ADDR: "     . getenv( 'REMOTE_ADDR' )     . "\n" ) ;
-	fwrite( $logFH, "Environment HTTP_USER_AGENT: " . getenv( 'HTTP_USER_AGENT' ) . "\n\n" ) ;
 }
 
 
@@ -160,7 +167,9 @@ if ( is_null( $json ) || $json == "" ) {
 
 	$safeToProcess = false;		// We are going to bail out anyway, but we'll set this just in case
 	header( $HEADER405 );
+	echo $HEADER405 . "\n" ;	// This goes out to the HTTP client / agent.
 	if ( $logToFile ) {
+		error_log( __FILE__ . " Error: No JSON POST data - exiting" ) ;
 		fwrite( $logFH, "Error: No JSON POST data - exiting\n" ) ;
 		fclose( $logFH ) ;
 	}
@@ -174,6 +183,7 @@ if ( is_null( $json ) || $json == "" ) {
 if ( ! isset( $json->Type ) ) {
 	$safeToProcess = false;
 	header( $HEADER503 );
+	echo $HEADER503 . "\n" ;	// This goes out to the HTTP client / agent.
 	if ( $logToFile ) {
 		fwrite( $logFH, "Error: No \"Type\" object in JSON\n\n" );
 	}
@@ -184,7 +194,8 @@ if ( $restrictByTopic && $safeToProcess ) {
 	if ( ! isset( $json->TopicArn ) || ! preg_match( "/$allowedTopicRegex/i", $json->TopicArn ) ) {
 		$safeToProcess = false;
 		header( $HEADER503 );
-		if ( $logToFile ){
+		echo $HEADER503 . "\n" ;	// This goes out to the HTTP client / agent.
+		if ( $logToFile ) {
 			$TopicArn = ( isset( $json->TopicArn ) ? $json->TopicArn : "(null)" ) ;
 			fwrite( $logFH, "ERROR: Allowed Topic ARN RegEx: \"" . $allowedTopicRegex . "\" DOES NOT MATCH Calling Topic ARN: \"" . $TopicArn . "\"\n\n" );
 		}
@@ -199,6 +210,7 @@ if ( $verifyCertificate && $safeToProcess ) {
 	if ( ! isset( $json->SigningCertURL ) ) {
 		$safeToProcess = false;
 		header( $HEADER503 );
+		echo $HEADER503 . "\n" ;	// This goes out to the HTTP client / agent.
 		if ( $logToFile ) {
 			fwrite( $logFH, "Error: No \"SigningCertURL\" object in JSON\n\n" );
 		}
@@ -210,6 +222,7 @@ if ( $verifyCertificate && $safeToProcess ) {
 		if ( $domainFromUrl != $allowedSourceDomain ) {
 			$safeToProcess = false;
 			header( $HEADER503 );
+			echo $HEADER503 . "\n" ;	// This goes out to the HTTP client / agent.
 			if ( $logToFile ) {
 				fwrite( $logFH, "Error: Key domain \"" . $domainFromUrl . "\" is not equal to allowed source domain \"" . $allowedSourceDomain. "\"\n\n" );
 			}
@@ -263,6 +276,7 @@ if ( $verifyCertificate && $safeToProcess ) {
 	if ( ! $signatureValid ) {
 		$safeToProcess = false;
 		header( $HEADER503 );
+		echo $HEADER503 . "\n" ;	// This goes out to the HTTP client / agent.
 		if ( $logToFile ) {
 			fwrite( $logFH, "ERROR: Data and Signature do not match Certificate, or Certificate Error.\n\n" );
 		}
@@ -336,7 +350,8 @@ if ( $safeToProcess ) {
 				ob_start();
 				print_r( $json );
 				$output = ob_get_clean();
-				fwrite ( $logFH, $output . "\n\n" );
+				fwrite( $logFH, $output . "\n\n" );
+				fwrite( $logFH, "Done. Finished. End. That's all folks. " . date( "Y-m-d H:i:s" ) . "\n\n" ) ;
 				fclose( $logFH ) ;
 			}
 			echo "Message processed successfully.\n" ;	// This goes out to the HTTP client / agent.
@@ -402,7 +417,15 @@ if ( $safeToProcess ) {
 		$nagiosHostName = $webSiteName . ":" . $messageJSON->Trigger->Dimensions[ 0 ]->value ;
 		$nagiosServiceName = $messageJSON->Trigger->MetricName . ": " . $messageJSON->AlarmName ;	// Updated 2015-08-28 to match the new format from ~nagios/libexec/FAS/Nagios-config-from-alarms.php line 452 -- Stefan
 
-		$nagiosStatusInfo = $alarmNameExploded[ 1 ]
+		if ( isset( $alarmNameExploded[ 1 ] ) && $alarmNameExploded[ 1 ] != null ) {
+			$alarmNameExploded1 = $alarmNameExploded[ 1 ] ;
+		} else {
+			$alarmNameExploded1 = "(Error: Improper CloudWatch Alarm Name format!!)" ;
+			if ( $logToFile ) {
+				fwrite( $logFH, "******** Error: Improper CloudWatch Alarm Name format! It appears to be missing the required space delimiter! ******** \n\n" ) ;
+			}
+		}
+		$nagiosStatusInfo = $alarmNameExploded1
 				. ": "
 				. $messageJSON->NewStateReason 
 				. " "
@@ -420,6 +443,7 @@ if ( $safeToProcess ) {
 
 		if ( ! file_exists( $commandPipePath ) ) {
 			header( $HEADER503 );
+			echo $HEADER503 . "\n" ;	// This goes out to the HTTP client / agent.
 			if ( $logToFile ) {
 				fwrite( $logFH, "\nError - can't find Nagios command pipe \"" . $commandPipePath . "\" !!!\n\n" ) ;
 				fclose( $logFH ) ;
@@ -430,6 +454,7 @@ if ( $safeToProcess ) {
 		$nagiosCommandPipe = fopen( $commandPipePath, "a" ) ;
 		if ( ! $nagiosCommandPipe ) {
 			header( $HEADER503 );
+			echo $HEADER503 . "\n" ;	// This goes out to the HTTP client / agent.
 			if ( $logToFile ) {
 				fwrite( $logFH, "\nError opening Nagios command pipe \"" . $commandPipePath . "\" !!!\n\n" ) ;
 				fclose( $logFH ) ;
@@ -437,6 +462,7 @@ if ( $safeToProcess ) {
 			exit( 1 ) ;
 		}
 
+		// Finally we actually write out the passive check command to Nagios for processing! Whew!!
 		if ( $writeToNagios && $writeToNagios == true ) {	// Make sure only the bool does it, not the string "true"
 			fwrite( $nagiosCommandPipe, $nagiosMessage . "\n" ) ;
 			if ( $logToFile ) {
@@ -446,6 +472,16 @@ if ( $safeToProcess ) {
 			fwrite( $logFH, "\n*** DEBUG ON - NOT written to " . $commandPipePath . " ***\n\n" ) ;
 		}
 		fclose( $nagiosCommandPipe ) ;
+
+
+		// If we got this far, we had a valid incoming message and we wrote out the passive check command to
+		// Nagios (or we would have) so now throw an entry in the tracking file that indicates a successful
+		// incoming AWS SNS message. (This is in addition to the special "Scheduled Event" type handled above.)
+		if ( $monitoringFH ) {
+			fwrite( $monitoringFH, join( ',', array( date( "U" ), $json->TopicArn, $messageJSON->StateChangeTime, "CloudWatch Alarm", __FILE__, getenv( 'REMOTE_ADDR' ) ) ) . "\n" ) ;
+			fclose( $monitoringFH ) ;
+		}
+
 
 		if ( $logToFile ) {
 			fwrite( $logFH, "Finished processing Notification!\n\n" ) ;

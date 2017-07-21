@@ -414,14 +414,14 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 	}
 
 	if ( $skipHostNotInConfig == "Y" ) {
-		print "# NOTE: Skipping \"host\" name \"$hostName\" for $customerShortName \n# because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
+		print "# NOTE: Skipping \"host\" name \"$hostName\" for $customerShortName\n# because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
 		continue ;
 	}
 
 	$hostList .= $hostName . ",";
 
 	if ( $hostNameFrom == "AWS/EC2:InstanceId" ) {
-		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script. \n# Skipping host \"$hostName\" here.\n\n\n" ;
+		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script.\n# Skipping host \"$hostName\" here.\n\n\n" ;
 		continue ;
 	}
 

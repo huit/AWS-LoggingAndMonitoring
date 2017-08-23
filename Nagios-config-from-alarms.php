@@ -58,6 +58,8 @@
 // 2016-10-19 - Added "Actual Alarm Evaluation Period" to the Service Notes - see comments above $evaluationPeriodMinutes
 // 2016-10-31 - Added "AWS Account" to Host and Service Notes, and added AWS Console URL as notes_url on Host
 // 2017-03-22 - Added "service" to the line 546 skipping notification, plus quotes around the service name
+// 2017-08-23 - Remove quotes around word "host" line 418 to make the "Skipping" comments uniform everywhere
+// 		Add property_exists() validation for $customerProfile
 // =============================================================================================
 
 
@@ -109,6 +111,11 @@ $myName = __FILE__ ;
 $nagiosMasterName = $configJSON->nagiosMasterName ;
 $defaultContactGroup = $configJSON->defaultContactGroup ;
 $nagiosContactGroupAlarms = $defaultContactGroup ;	// This should be replaced per-site later.
+
+if ( ! property_exists( $configJSON->accountsByName, $customerProfile ) ) {
+	print "Error: Can't find AWS account/profile \"$customerProfile\" in $configFile accountsByName\n" ;
+	exit( STATE_UNKNOWN );
+}
 
 if ( ! property_exists( $configJSON->accountsByName->$customerProfile, $appStack ) ) {
 	print "Error: Can't find app stack \"$appStack\" in $configFile accountsByName->$customerProfile\n" ;
@@ -414,7 +421,7 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 	}
 
 	if ( $skipHostNotInConfig == "Y" ) {
-		print "# NOTE: Skipping \"host\" name \"$hostName\" for $customerShortName\n# because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
+		print "# NOTE: Skipping host name \"$hostName\" for $customerShortName\n# because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
 		continue ;
 	}
 

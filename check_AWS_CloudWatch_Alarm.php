@@ -6,7 +6,7 @@
 // By Stefan Wuensch stefan_wuensch@harvard.edu 2014-08-21
 //
 // Usage: 
-// check_AWS_CloudWatch_Alarm.php [ -h ] [ -v ] --hostName string --hostData string --serviceDescription string --profile string [ --help ]
+// check_AWS_CloudWatch_Alarm.php [ -h ] [ -v ] --hostName string --hostData string --serviceDescription string [ --serviceData string ] --profile string [ --help ]
 //
 // This Nagios plugin makes a call to AWS using the AWS command-line tools. It queries AWS for the specific
 // CloudWatch Alarm that represents the Nagios Host and Service. The Alarm StateValue is used to determine
@@ -39,7 +39,7 @@ $debug = false;
 // Load our constants and etc.
 include_once(dirname(__FILE__).'/utils.php');
 
-$commandOptions = getopt( "hv", array( "hostName:", "hostData:", "serviceDescription:", "profile:", "help" ) ) ;
+$commandOptions = getopt( "hv", array( "hostName:", "hostData:", "serviceDescription:", "serviceData:", "profile:", "help" ) ) ;
 if ( isset( $commandOptions[ "h" ] ) || isset( $commandOptions[ "help" ] ) ) {
 	usage() ;
 	exit( STATE_UNKNOWN );
@@ -52,8 +52,13 @@ foreach( array( "hostName", "hostData", "serviceDescription", "profile" ) as $te
 	}
 }
 
-list( $sitename, $namespace, $dimensionsName ) 	= preg_split( '/:/', $commandOptions[ "hostData" ], 3 ) ;
-list( $sitename, $dimensionsValue ) 		= preg_split( '/:/', $commandOptions[ "hostName" ], 2 ) ;
+// Old way - throws errors if there's not enough elements
+// list( $sitename, $namespace, $dimensionsName ) 	= preg_split( '/:/', $commandOptions[ "hostData" ], 3 ) ;
+// list( $sitename, $dimensionsValue ) 		= preg_split( '/:/', $commandOptions[ "hostName" ], 2 ) ;
+
+// New way - pad with nulls - safer.
+list( $sitename, $namespace, $dimensionsName ) 	= array_pad( explode( ':', $commandOptions[ "hostData" ], 3 ), 3, null );
+list( $sitename, $dimensionsValue ) 		= array_pad( explode( ':', $commandOptions[ "hostName" ], 2 ), 2, null ) ;
 
 if( $debug ){
 	////LOG TO FILE:
@@ -69,6 +74,13 @@ if( $debug ){
 
 	// Enable this to see $argv in the log file.
 // 	fwrite( $logFH, "ARGV:\n" ) ;
+// 	foreach( $argv as $arg ) {
+// 		if ( preg_match( "/ /", $arg ) ) {
+// 			$arg = '"' . $arg . '"' ;
+// 		}
+// 		fwrite( $logFH, $arg . " " ) ;
+// 	}
+// 	fwrite( $logFH, "\n\nARGV as object:\n" ) ;
 // 	ob_start();
 // 	var_dump( $argv );
 // 	$contents = ob_get_contents();
@@ -107,6 +119,14 @@ if ( ! preg_match( "/: /", $commandOptions[ "serviceDescription" ] ) ) {
 
 // Now break up the serviceDescription and use the second element for our --alarm-names query
 list( $NagiosMetricName, $NagiosAlarmName ) = preg_split( '/: /', $commandOptions[ "serviceDescription" ], 2 ) ;
+
+// However, if we got an Alarm Name from the serviceData arg, we'll use that instead.
+// This allows the Service Name to be stripped of problem characters, but we'll still get
+// the correct Alarm Name to check from serviceData ("_AWS_Data" in config or "$_SERVICEAWS_DATA$" macro).
+if ( isset( $commandOptions[ "serviceData" ] ) && $commandOptions[ "serviceData" ] != "" ) {
+	$NagiosAlarmName = $commandOptions[ "serviceData" ] ;
+}
+
 $awsReadAlarmCommand =  "aws cloudwatch describe-alarms" ;
 $awsReadAlarmCommand .= " --alarm-names \"" 	. $NagiosAlarmName . "\"";
 $awsReadAlarmCommand .= " --profile " 		. $commandOptions[ "profile" ] ;
@@ -128,7 +148,7 @@ if ( $debug && ! is_null( $CloudWatchAlarmsJSON ) && $CloudWatchAlarmsJSON != ""
 
 // Check for getting something back!
 if ( ! isset( $CloudWatchAlarmsJSON ) || $CloudWatchAlarmsJSON == "" ) {
-	$errorOut = "Error - no JSON data returned from \"$awsReadAlarmCommand\"\n" ;
+	$errorOut = "Error - no JSON data returned from \"$awsReadAlarmCommand\" - could be a problem reaching the AWS API\n" ;
 	print $errorOut ;
 	if( $debug ){
 		fwrite( $logFH, $errorOut ) ;
@@ -163,7 +183,7 @@ if ( $alarmInstance->StateValue == "ALARM" ) {
 // Special handling of ELB 4xx and 5xx codes, because the "INSUFFICIENT_DATA" is actually OK and "OK" really means Warning.
 // Why? Because if there's no data at all that means there's no 4xx/5xx codes seen - and that's good.
 // If we do see *some* 4xx/5xx but it's below the threshold, that's not a big deal = Warning.
-if ( $namespace == "AWS/ELB" && preg_match( "/HTTPCode_ELB_/i", $commandOptions[ "serviceDescription" ] ) ) {
+if ( ( $namespace == "AWS/ELB" || $namespace == "AWS/ApplicationELB" ) && preg_match( "/HTTPCode_ELB_/i", $commandOptions[ "serviceDescription" ] ) ) {
 	if ( $alarmInstance->StateValue == "INSUFFICIENT_DATA" ) {
 		$nagiosStatus = STATE_OK ;
 	}
@@ -194,7 +214,7 @@ exit( $nagiosStatus ) ;
 function usage() {
 
 	print "Usage: \n" ;
-	print __FILE__ . " [ -h ] [ -v ] --hostName string --hostData string --serviceDescription string --profile string [ --help ]\n" ;
+	print __FILE__ . " [ -h ] [ -v ] --hostName string --hostData string --serviceDescription string [ --serviceData string ] --profile string [ --help ]\n" ;
 
 }
 //=============================================================================

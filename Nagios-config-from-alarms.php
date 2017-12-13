@@ -60,6 +60,15 @@
 // 2017-03-22 - Added "service" to the line 546 skipping notification, plus quotes around the service name
 // 2017-08-23 - Remove quotes around word "host" line 418 to make the "Skipping" comments uniform everywhere
 // 		Add property_exists() validation for $customerProfile
+// 2017-11-01 - Add first pass at handling namespace AWS/ApplicationELB (ELBv2)
+// 2017-11-22 - Remove slash "/" from Host and Service names for Nagios XI compatibility
+// 		Update AppELB action_url to search for TargetGroups
+// 		Add customerProfile to last-resort "constructed name" to avoid name collisions across AWS accounts
+// 2017-12-12 - Replace "CloudFront" in template names with correct "CloudWatch"
+// 		Add Instance Tag search for "Product" to try and make "siteID"
+// 		Clarify message when skipping because EC2 Instance is no longer there
+// 		Remove Host config skip for EC2 Instances; no longer doing separate automation for Instances
+// 2017-12-13 - Change retry_interval from 15 to 25. No need to load the server so much when SNS has proven reliable.
 // =============================================================================================
 
 
@@ -188,7 +197,7 @@ $EC2InstancesJSON = json_decode( shell_exec( $awsReadEC2InstancesCommand ) ) ;
 
 // Check for getting something back!
 if ( ! isset( $EC2InstancesJSON ) || $EC2InstancesJSON == "" ) {
-	print "Error - no JSON data returned from \"$awsReadEC2InstancesCommand\"\n" ;
+	print "Error - no JSON data returned from \"$awsReadEC2InstancesCommand\" - could be a problem reaching the AWS API\n" ;
 	exit( STATE_UNKNOWN ) ;
 }
 
@@ -247,7 +256,7 @@ echo <<<ENDOFTEXT
 # "$defaultContactGroup" is a default, which is expected to be replaced by a value from "nagiosContactGroupAlarms" out of the site config file.
 
 define host {
-	name				aws-host-CloudFront-Alarm-$customerShortName
+	name				aws-host-CloudWatch-Alarm-$customerShortName
 	use				aws-host-active-check-$customerShortName
 	contact_groups			$defaultContactGroup
 	register			0
@@ -257,13 +266,13 @@ define host {
 # Very lazy check intervals because we are relying on Passive check inputs for true Alarm conditions.
 # The Active checking of services is just to fill in when we'd otherwise be waiting around for a Passive check.
 define service {
-	name				aws-service-CloudFront-Alarm-$customerShortName
+	name				aws-service-CloudWatch-Alarm-$customerShortName
 	use				aws-service-active-check-$customerShortName
 	contact_groups			$defaultContactGroup
 	check_command			check_AWS_CloudWatch_Alarm!$customerProfile
 	notification_options		u,c,r,f,s
-	normal_check_interval		30
-	retry_check_interval		15
+	check_interval			30
+	retry_interval			25
 	notification_interval		30
 	max_check_attempts		1
 	event_handler			submit_AWS_config_refresh!$nagiosMasterName!"Nagios config in sync - $customerShortName AWS CloudWatch Alarms"!\$SERVICESTATE:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$LASTSERVICECHECK:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$
@@ -302,6 +311,9 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 		$instanceName = "" ;
 
 		foreach( $ec2Instance->Tags as $ec2InstanceTag ) {
+			if ( $ec2InstanceTag->Key == "Product" || $ec2InstanceTag->Key == "product" ) {
+				$siteID = $ec2InstanceTag->Value ;
+			}
 			if ( $ec2InstanceTag->Key == "aws:cloudformation:stack-name" ) {
 				$siteID = $ec2InstanceTag->Value ;
 			}
@@ -314,7 +326,7 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 		}
 
 		if ( ! isset( $siteID ) || $siteID == "" || ! isset( $instanceName ) || $instanceName == "" ) {
-			print "# Skipping instance $instanceID named \"$instanceName\" - found no stack name from Tags!\n" ;
+			print "# Skipping instance $instanceID named \"$instanceName\" - found no usable info in Tags!\n\n" ;
 			continue ;
 		}
 
@@ -350,15 +362,16 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
 				$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
 			} else {
-				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name" ;		// As a last resort, make up something that will still work when we split it later.
+				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $customerProfile ;	// As a last resort, make up something that will still work when we split it later.
 			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
+			$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22
 
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
-					print "\n# Skipping host \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
-					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n" ;
+					print "\n# Skipping host \"$hostName\" (built from CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
+					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated!!\n\n" ;
 					continue ;
 				}
 			}
@@ -428,13 +441,15 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 	$hostList .= $hostName . ",";
 
 	if ( $hostNameFrom == "AWS/EC2:InstanceId" ) {
-		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script.\n# Skipping host \"$hostName\" here.\n\n\n" ;
-		continue ;
+		print "# NOTE: \"$hostName\" is an EC2 Instance.\n" ;
+// 2017-12-12 - No longer doing EC2 Instance config automation, so we will no longer skip.
+// 		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script.\n# Skipping host \"$hostName\" here.\n\n\n" ;
+// 		continue ;
 	}
 
 	echo <<<ENDOFTEXT
 define host {
-	use			aws-host-CloudFront-Alarm-$customerShortName
+	use			aws-host-CloudWatch-Alarm-$customerShortName
 	host_name		$hostName
 	_AWS_Data		$shortSiteName:$hostNameFrom
 	hostgroups		$customerShortName in AWS - All
@@ -474,18 +489,20 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
 				$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
 			} else {
-				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name" ;		// As a last resort, make up something that will still work when we split it later.
+				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $customerProfile ;	// As a last resort, make up something that will still work when we split it later.
 			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
+			$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22
 
 			$instanceName = $alarmInstance->Dimensions[ 0 ]->Value ;
 			$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
+			$serviceName =	str_replace( "/", "_", $serviceName ) ;	// 2017-11-22
 
 			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
-					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (found in CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
-					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" ($alarmInstance->MetricName) for site $webSiteName is stale and needs to be updated!!\n\n\n" ;
+					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (built from CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
+					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated!!\n\n\n" ;
 					continue ;
 				}
 			}
@@ -513,6 +530,14 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 							. "ec2/v2/home?region="
 							. $region
 							. "#LoadBalancers:search="
+							. $instanceName ;
+					break ;
+
+				case "AWS/ApplicationELB" :
+					$actionURL = $awsConsoleURLBase
+							. "ec2/home?region="
+							. $region
+							. "#TargetGroups:search="
 							. $instanceName ;
 					break ;
 
@@ -569,9 +594,10 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
 			echo <<<ENDOFTEXT
 define service {
-	use				aws-service-CloudFront-Alarm-$customerShortName
+	use				aws-service-CloudWatch-Alarm-$customerShortName
 	host_name			$hostName
 	service_description		$serviceName
+	_AWS_Data			$alarmInstance->AlarmName
 	contact_groups			$nagiosContactGroupAlarms
 	notes				$serviceExtInfo ($hostNameFrom = $hostName, AlarmName = $alarmInstance->AlarmName, Namespace = $namespace, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>)
 	notes_url			$notesURL

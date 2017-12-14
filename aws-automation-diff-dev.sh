@@ -45,12 +45,15 @@ export PATH=/usr/local/bin:/bin:/usr/bin
 RUNASUSER="nagios"
 [[ "$( /usr/bin/whoami )" != "${RUNASUSER}" ]] &&
 	echo "This script must be run as user ${RUNASUSER}, for example:" &&
-	echo "  sudo -u nagios $0" &&
+	echo "  sudo -u ${RUNASUSER} $0" &&
 	exit 1
 
 
 
 FILES="$( ls /usr/local/nagios/etc/aws/*alarm* | sort )"
+
+[[ $# -eq 1 ]] && FILES="${1}"	# if we get an arg, use it for the config file name
+
 if [[ -n "$( basename $0 | grep -i dev )" ]] ; then
 	DEV="Y"
 	SCRIPT="/usr/local/nagios/libexec/FAS/Nagios-config-from-alarms-dev.php"
@@ -70,7 +73,7 @@ echo -e "${FILES}" | xargs -n1 basename | sort
 echo -ne "\n\nNote: You can ignore any comment lines of the 'diff' output which differ only by "
 [[ "${DEV}" == "Y" ]] && echo -n "the string \"-dev\" or "
 echo -e "the date/time stamp."
-sleep 2
+[[ $# -eq 0 ]] && sleep 2	# if we're operating on all the files, give the person a sec. to review the list
 
 
 for file in ${FILES} ; do

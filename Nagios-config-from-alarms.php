@@ -69,6 +69,10 @@
 // 		Clarify message when skipping because EC2 Instance is no longer there
 // 		Remove Host config skip for EC2 Instances; no longer doing separate automation for Instances
 // 2017-12-13 - Change retry_interval from 15 to 25. No need to load the server so much when SNS has proven reliable.
+// 2018-01-12 - Move the "running" filter into $filters var so it also prints in the "skipping" comments
+// 		Add Namespace "System/Linux" to the exclusions for skipping an EC2 Instance config if it doesn't exist
+// 2018-01-16 - Drop the "running" filter. It ought to be in the config file.
+// 		Make the "--filters" CLI arg present only if there are filters found
 // =============================================================================================
 
 
@@ -185,13 +189,15 @@ $region = $regionExploded[ 3 ] ;
 
 $awsReadEC2InstancesCommand  = "aws ec2 describe-instances" ;
 $awsReadEC2InstancesCommand .= " --profile=" . $customerProfile ;
-$awsReadEC2InstancesCommand .= " --filters " . "\"Name=instance-state-name,Values=running\" " ;
 
-$filters = "" ;
+// $filters = "\"Name=instance-state-name,Values=running\" " ;		// Use this if we want to only process running instances
+$filters = "" ;		// Starting with nothing because we're adding in the next loop, if any are in the config.
 foreach( $configJSON->accountsByName->$customerProfile->$appStack->tagFilters as $filter ) {
 	$filters .= "\"$filter\" " ;
 }
-$awsReadEC2InstancesCommand .= $filters ;
+if ( isset( $filters ) && $filters != "" ) {				// Only if there are some filters there...
+	$awsReadEC2InstancesCommand .= " --filters " . $filters ;	// ...then we add the CLI option.
+}
 
 $EC2InstancesJSON = json_decode( shell_exec( $awsReadEC2InstancesCommand ) ) ;
 
@@ -368,10 +374,10 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
 			$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22
 
-			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
+			if ( $alarmInstance->Namespace == "AWS/EC2" || $alarmInstance->Namespace == "System/Linux" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
-					print "\n# Skipping host \"$hostName\" (built from CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
-					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated!!\n\n" ;
+					print "\n# Skipping host \"$hostName\" (built from CloudWatch Alarms, namespace $alarmInstance->Namespace) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
+					print "# This skipping means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated or removed!!\n\n\n" ;
 					continue ;
 				}
 			}
@@ -434,7 +440,7 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 	}
 
 	if ( $skipHostNotInConfig == "Y" ) {
-		print "# NOTE: Skipping host name \"$hostName\" for $customerShortName\n# because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
+		print "# NOTE: Skipping host name \"$hostName\" for $customerShortName because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
 		continue ;
 	}
 
@@ -499,10 +505,10 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
 			$serviceName =	str_replace( "/", "_", $serviceName ) ;	// 2017-11-22
 
-			if ( $alarmInstance->Namespace == "AWS/EC2" ) {
+			if ( $alarmInstance->Namespace == "AWS/EC2" || $alarmInstance->Namespace == "System/Linux" ) {
 				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
-					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (built from CloudWatch Alarms) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
-					print "# This means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated!!\n\n\n" ;
+					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (built from CloudWatch Alarms, namespace $alarmInstance->Namespace) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
+					print "# This skipping means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated or removed!!\n\n\n" ;
 					continue ;
 				}
 			}
@@ -574,8 +580,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			if ( isset( $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ) ) {
 				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
 			} else {
-				print "# NOTE: Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\".\n" ;
-				print "# Skipping service \"$serviceName\"\n\n\n" ;
+				print "# NOTE: Skipping service name \"$serviceName\" - Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\".\n\n\n" ;
 				continue ;
 			}
 

@@ -4,7 +4,7 @@
 // =============================================================================================
 // Nagios-config-from-alarms.php
 //
-// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015 - 2016 - 2017
+// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015 - 2016 - 2017 - 2018
 //
 // Usage:
 // Nagios-config-from-alarms.php --appStack string --profile string [ -h ] [ --help ]
@@ -17,19 +17,19 @@
 // {
 //     "MetricAlarms": [
 //         {
-//             "AlarmArn": "arn:aws:cloudwatch:region:accountNumber:alarm:name", 
+//             "AlarmArn": "arn:aws:cloudwatch:region:accountNumber:alarm:name",
 //             "AlarmActions": [
 //                 "arn:aws:sns:region:accountNumber:topicName"
-//             ], 
-//             "Namespace": "AWS/XXX", 
-//             "AlarmDescription": "Some text string(s)", 
-//             "AlarmName": "websitename-harvard-edu plus other text - space REQUIRED after the -edu", 
+//             ],
+//             "Namespace": "AWS/XXX",
+//             "AlarmDescription": "Some text string(s)",
+//             "AlarmName": "websitename-harvard-edu plus other text - space REQUIRED after the -edu",
 //             "Dimensions": [
 //                 {
-//                     "Name": "Some Text", 
+//                     "Name": "Some Text",
 //                     "Value": "Some Text"
 //                 }
-//             ], 
+//             ],
 //             "MetricName": "CPUUtilization"
 //         }
 //     ]
@@ -44,9 +44,9 @@
 // Nagios "host" name:    $json->MetricAlarms[ X ]->Dimensions[ 0 ]->Value
 // Nagios "service" name: $json->MetricAlarms[ X ]->MetricName
 // Nagios serviceextinfo: $json->MetricAlarms[ X ]->AlarmDescription
-// 
+//
 // =============================================================================================
-// 
+//
 // Changes:
 // 2014-08-21 - Added MetricAlarms->Namespace into colon-delimited new format of Host Alias, to be used in performing Active Service Checks.
 // 2014-08-22 - Added check for no JSON on input
@@ -73,6 +73,11 @@
 // 		Add Namespace "System/Linux" to the exclusions for skipping an EC2 Instance config if it doesn't exist
 // 2018-01-16 - Drop the "running" filter. It ought to be in the config file.
 // 		Make the "--filters" CLI arg present only if there are filters found
+// 2018-01-29 - Handle System/Linux Namespace which has multiple Dimensions[] and we have to find the one that's "InstanceId"
+// 		Fix and improve Notes on Host & Service definitions, including more links to AWS Console and improved clarity
+// 2018-01-31 - Fix the AWS/RDS console link
+// 		Disable the "skipping" due to no $siteID or $instanceName - those seem not to be used
+// 		Allow use of Tag "name" (all lower case)
 // =============================================================================================
 
 
@@ -311,7 +316,7 @@ $allInstanceIDs = array() ;	// Init to null
 foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 	foreach( $instancesReservation->Instances as $ec2Instance ) {
 		$instanceID = $ec2Instance->InstanceId ;
-// 		print "# Found \$ec2Instance->InstanceId: " . $ec2Instance->InstanceId . "\n";
+// 		print "# Found \$ec2Instance->InstanceId: " . $ec2Instance->InstanceId . "\n";	// Debugging output
 
 		$siteID = "" ;
 		$instanceName = "" ;
@@ -326,14 +331,16 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 			if ( $ec2InstanceTag->Key == "SiteID" ) {
 				$siteID = $ec2InstanceTag->Value ;
 			}
-			if ( $ec2InstanceTag->Key == "Name" ) {
+			if ( $ec2InstanceTag->Key == "Name" || $ec2InstanceTag->Key == "name" ) {
 				$instanceName = $ec2InstanceTag->Value ;
 			}
 		}
 
 		if ( ! isset( $siteID ) || $siteID == "" || ! isset( $instanceName ) || $instanceName == "" ) {
-			print "# Skipping instance $instanceID named \"$instanceName\" - found no usable info in Tags!\n\n" ;
-			continue ;
+			print "# Note: Instance $instanceID named \"$instanceName\" does not have all the expected Tags such as \"Product\" and/or \"aws:cloudformation:stack-name\".\n\n" ;
+// 2018-01-31 - Skipping disabled because it doesn't appear that we're using $siteID nor $instanceName right now!!
+// 			print "# Skipping instance $instanceID named \"$instanceName\" - found no usable info in Tags!\n\n" ;
+// 			continue ;
 		}
 
 		$allInstanceIDs[ $instanceID ][ "siteID" ] 		= $siteID ;
@@ -372,17 +379,43 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
-			$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22
+			$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
 
+			// If the Alarm is for an EC2 Instance (either of the two Namespaces) make sure that Instance ID actually exists!
+			// This prevents Nagios config objects from being built for old stale Alarms. At one point in early 2018,
+			// there were more than 2000 Alarms for Instances that did not exist!!
+			// Note that this could be extended to any / all other Namespaces for which there are Alarms (ELB, ASG, RDS, etc.)
+			// but as of 2018-01-29 the number of stale alarms for those types is not too great - and by building Nagios configs
+			// for those (even if the Alarm target doesn't exist) allows the app owner to see the "INSUFFICIENT_DATA" state in Nagios.
 			if ( $alarmInstance->Namespace == "AWS/EC2" || $alarmInstance->Namespace == "System/Linux" ) {
-				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
+
+				$thisAlarmInstanceId = "" ;
+				foreach( $alarmInstance->Dimensions as $Dimension ) {		// Reach into Dimensions[] and find the "Name": "InstanceId"
+					if ( isset( $Dimension->Name ) && $Dimension->Name == "InstanceId" ) {
+						$thisAlarmInstanceId = $Dimension->Value ;
+// 						print "\$alarmInstance->AlarmName: " . $alarmInstance->AlarmName . "\n\$thisAlarmInstanceId: " . $thisAlarmInstanceId . "\n\n";		// Debugging output
+						break ;
+					}
+				}
+
+				// Re-generate the "Host" name from the Instance ID, which is NOT necessarily Dimensions[ 0 ]
+				// Something similar *might* also have to be done for any Alarm for an AWS resource defined by multiple Dimensions. TBD as of 2018-01-29
+				$hostName = 	$webSiteName . ":" . $thisAlarmInstanceId ;
+				$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
+
+				if ( ! isset( $allInstanceIDs[ $thisAlarmInstanceId ] ) ) {	// If we didn't find that InstanceId among all the Instances, it's bogus!
 					print "\n# Skipping host \"$hostName\" (built from CloudWatch Alarms, namespace $alarmInstance->Namespace) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
 					print "# This skipping means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated or removed!!\n\n\n" ;
 					continue ;
 				}
 			}
 
+			// Build the primary Hosts object, tracking the Namespace and what Dimension gave us the constructed Host Name
 			$allHostNames[ $hostName ] = $alarmInstance->Namespace . ":" . $alarmInstance->Dimensions[ 0 ]->Name ;
+			// ...except in the case of an EC2 Instance which could have multiple Dimensions as noted above.
+			if ( $alarmInstance->Namespace == "AWS/EC2" || $alarmInstance->Namespace == "System/Linux" ) {
+				$allHostNames[ $hostName ] = $alarmInstance->Namespace . ":InstanceId" ;
+			}
 			$allSiteNames[ $webSiteName ][ $hostName ] = true ;
 		}
 	}
@@ -446,7 +479,7 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 
 	$hostList .= $hostName . ",";
 
-	if ( $hostNameFrom == "AWS/EC2:InstanceId" ) {
+	if ( $hostNameFrom == "AWS/EC2:InstanceId" || $hostNameFrom == "System/Linux:InstanceId" ) {
 		print "# NOTE: \"$hostName\" is an EC2 Instance.\n" ;
 // 2017-12-12 - No longer doing EC2 Instance config automation, so we will no longer skip.
 // 		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script.\n# Skipping host \"$hostName\" here.\n\n\n" ;
@@ -460,7 +493,7 @@ define host {
 	_AWS_Data		$shortSiteName:$hostNameFrom
 	hostgroups		$customerShortName in AWS - All
 	contact_groups		$nagiosContactGroupAlarms
-	notes			AWS Account <a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>
+	notes			Notes: AWS Account "<a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href="/nagios/cgi-bin/status.cgi?host=$hostName">each Nagios Service for this Host</a>.
 	notes_url		https://$customerProfile.signin.aws.amazon.com/console
 }
 
@@ -484,7 +517,7 @@ $nagiosContactGroupAlarms = $defaultContactGroup ;	// Reset to the default since
 print "###############################################################################\n" ;
 print "# Services\n\n" ;
 
-foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
+foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mighty similar to the one above which does "Hosts". To-Do: unify the two.
 
 	foreach( $alarmInstance->AlarmActions as $alarmAction ) {
 		if ( preg_match( "/nagios/i", $alarmAction ) ) {	// Only if it's a Nagios action!
@@ -499,21 +532,44 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
-			$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22
+			$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
 
-			$instanceName = $alarmInstance->Dimensions[ 0 ]->Value ;
+			$resourceID = 	$alarmInstance->Dimensions[ 0 ]->Value ;
 			$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
-			$serviceName =	str_replace( "/", "_", $serviceName ) ;	// 2017-11-22
+			$serviceName =	str_replace( "/", "_", $serviceName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
+			$primaryDimension = $alarmInstance->Dimensions[ 0 ]->Name ;
 
+			// If the Alarm is for an EC2 Instance (either of the two Namespaces) make sure that Instance ID actually exists!
+			// This prevents Nagios config objects from being built for old stale Alarms. At one point in early 2018,
+			// there were more than 2000 Alarms for Instances that did not exist!!
+			// Note that this could be extended to any / all other Namespaces for which there are Alarms (ELB, ASG, RDS, etc.)
+			// but as of 2018-01-29 the number of stale alarms for those types is not too great - and by building Nagios configs
+			// for those (even if the Alarm target doesn't exist) allows the app owner to see the "INSUFFICIENT_DATA" state in Nagios.
 			if ( $alarmInstance->Namespace == "AWS/EC2" || $alarmInstance->Namespace == "System/Linux" ) {
-				if ( ! isset( $allInstanceIDs[ $alarmInstance->Dimensions[ 0 ]->Value ] ) ) {
+
+				$thisAlarmInstanceId = "" ;
+				foreach( $alarmInstance->Dimensions as $Dimension ) {		// Reach into Dimensions[] and find the "Name": "InstanceId"
+					if ( isset( $Dimension->Name ) && $Dimension->Name == "InstanceId" ) {
+						$thisAlarmInstanceId = $Dimension->Value ;
+						$primaryDimension = "InstanceId" ;
+// 						print "\$alarmInstance->AlarmName: " . $alarmInstance->AlarmName . "\n\$thisAlarmInstanceId: " . $thisAlarmInstanceId . "\n\n";		// Debugging output
+						break ;
+					}
+				}
+
+				// Re-generate the "Host" name from the Instance ID, which is NOT necessarily Dimensions[ 0 ]
+				// Something similar *might* also have to be done for any Alarm for an AWS resource defined by multiple Dimensions. TBD as of 2018-01-29
+				$hostName = 	$webSiteName . ":" . $thisAlarmInstanceId ;
+				$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
+				$resourceID = 	$thisAlarmInstanceId ;
+
+				if ( ! isset( $allInstanceIDs[ $thisAlarmInstanceId ] ) ) {	// If we didn't find that InstanceId among all the Instances, it's bogus!
 					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (built from CloudWatch Alarms, namespace $alarmInstance->Namespace) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
 					print "# This skipping means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated or removed!!\n\n\n" ;
 					continue ;
 				}
 			}
 
-			$hostNameFrom =   $alarmInstance->Dimensions[ 0 ]->Name ;
 			if ( isset( $alarmInstance->AlarmDescription ) ) {
 				$serviceExtInfo = $alarmInstance->AlarmDescription ;
 			} else {
@@ -526,8 +582,8 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 					$actionURL = $awsConsoleURLBase
 							. "rds/home?region="
 							. $region
-							. "#dbinstances:id="
-							. $instanceName ;
+							. "#dbinstance:id="
+							. $resourceID ;
 // 							. "%3Bsf=all" ;		// Disabled this 2016-08-08 - it seems to not be needed, and the urlencoded ';' doesn't seem to be decoded by Chrome
 					break ;
 
@@ -536,7 +592,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 							. "ec2/v2/home?region="
 							. $region
 							. "#LoadBalancers:search="
-							. $instanceName ;
+							. $resourceID ;
 					break ;
 
 				case "AWS/ApplicationELB" :
@@ -544,7 +600,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 							. "ec2/home?region="
 							. $region
 							. "#TargetGroups:search="
-							. $instanceName ;
+							. $resourceID ;
 					break ;
 
 				case "AWS/EC2" :
@@ -552,7 +608,15 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 							. "ec2/v2/home?region="
 							. $region
 							. "#Instances:search="
-							. $instanceName ;
+							. $resourceID ;
+					break ;
+
+				case "System/Linux" :
+					$actionURL = $awsConsoleURLBase
+							. "ec2/v2/home?region="
+							. $region
+							. "#Instances:search="
+							. $resourceID ;
 					break ;
 
 				case "AWS/AutoScaling" :
@@ -560,7 +624,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 							. "ec2/autoscaling/home?region="
 							. $region
 							. "#AutoScalingGroups:id="
-							. $instanceName ;
+							. $resourceID ;
 					break ;
 
 				default:
@@ -604,7 +668,7 @@ define service {
 	service_description		$serviceName
 	_AWS_Data			$alarmInstance->AlarmName
 	contact_groups			$nagiosContactGroupAlarms
-	notes				$serviceExtInfo ($hostNameFrom = $hostName, AlarmName = $alarmInstance->AlarmName, Namespace = $namespace, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>)
+	notes				Notes: $serviceExtInfo ($primaryDimension = <a href="$actionURL">$resourceID</a>, AlarmName = "<a href='$notesURL'>$alarmInstance->AlarmName</a>", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>)
 	notes_url			$notesURL
 	action_url			$actionURL
 }

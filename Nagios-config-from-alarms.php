@@ -4,7 +4,7 @@
 // =============================================================================================
 // Nagios-config-from-alarms.php
 //
-// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015 - 2016 - 2017
+// By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015 - 2016 - 2017 - 2018
 //
 // Usage:
 // Nagios-config-from-alarms.php --appStack string --profile string [ -h ] [ --help ]
@@ -75,6 +75,9 @@
 // 		Make the "--filters" CLI arg present only if there are filters found
 // 2018-01-29 - Handle System/Linux Namespace which has multiple Dimensions[] and we have to find the one that's "InstanceId"
 // 		Fix and improve Notes on Host & Service definitions, including more links to AWS Console and improved clarity
+// 2018-01-31 - Fix the AWS/RDS console link
+// 		Disable the "skipping" due to no $siteID or $instanceName - those seem not to be used
+// 		Allow use of Tag "name" (all lower case)
 // =============================================================================================
 
 
@@ -328,14 +331,16 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 			if ( $ec2InstanceTag->Key == "SiteID" ) {
 				$siteID = $ec2InstanceTag->Value ;
 			}
-			if ( $ec2InstanceTag->Key == "Name" ) {
+			if ( $ec2InstanceTag->Key == "Name" || $ec2InstanceTag->Key == "name" ) {
 				$instanceName = $ec2InstanceTag->Value ;
 			}
 		}
 
 		if ( ! isset( $siteID ) || $siteID == "" || ! isset( $instanceName ) || $instanceName == "" ) {
-			print "# Skipping instance $instanceID named \"$instanceName\" - found no usable info in Tags!\n\n" ;
-			continue ;
+			print "# Note: Instance $instanceID named \"$instanceName\" does not have all the expected Tags such as \"Product\" and/or \"aws:cloudformation:stack-name\".\n\n" ;
+// 2018-01-31 - Skipping disabled because it doesn't appear that we're using $siteID nor $instanceName right now!!
+// 			print "# Skipping instance $instanceID named \"$instanceName\" - found no usable info in Tags!\n\n" ;
+// 			continue ;
 		}
 
 		$allInstanceIDs[ $instanceID ][ "siteID" ] 		= $siteID ;
@@ -577,7 +582,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 					$actionURL = $awsConsoleURLBase
 							. "rds/home?region="
 							. $region
-							. "#dbinstances:id="
+							. "#dbinstance:id="
 							. $resourceID ;
 // 							. "%3Bsf=all" ;		// Disabled this 2016-08-08 - it seems to not be needed, and the urlencoded ';' doesn't seem to be decoded by Chrome
 					break ;

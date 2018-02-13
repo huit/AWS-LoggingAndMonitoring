@@ -7,7 +7,7 @@
 // By Stefan Wuensch stefan_wuensch@harvard.edu 2014 - 2015 - 2016 - 2017 - 2018
 //
 // Usage:
-// Nagios-config-from-alarms.php --appStack string --profile string [ -h ] [ --help ]
+// Nagios-config-from-alarms.php --appStack=string --profile=string [ --generateJSON=true|false ] [ -h ] [ --help ]
 //
 // Output: Nagios configuration objects
 //
@@ -78,6 +78,9 @@
 // 2018-01-31 - Fix the AWS/RDS console link
 // 		Disable the "skipping" due to no $siteID or $instanceName - those seem not to be used
 // 		Allow use of Tag "name" (all lower case)
+// 2018-02-07 - Read this script name to determine dev/prod and set development-only options accordingly
+// 2018-02-12 - Major changes in order to produce JSON file output (in addition to existing Nagios config on STDOUT)
+// 		New function bailout() to replace previous "print" and "exit" - required for closing JSON filehandle on exit
 // =============================================================================================
 
 
@@ -91,17 +94,42 @@ date_default_timezone_set('America/New_York');
 include_once( dirname( __FILE__ ) . '/utils.php' );
 
 
+// The Nagios Core 'root' directory / install base. Not necessarily
+// the same as the user 'nagios' $HOME so we have to specify it.
+$nagios_base_dir = "/usr/local/nagios" ;
+
+
+// 2018-02-07 - Do we write out the JSON for import to Nagios XI?
+// If 'false' then only send the conventional Nagios config file to STDOUT as always.
+// if 'true' then we will *also* write a JSON-ified version of the Nagios config definitions.
+// NOTE this is the default initial state ONLY. If the command option "--generateJSON=true" is
+// given then this will be set to 'true'.
+$writeJSONforXI = false ;
+
+// 2018-02-07 - Are we dev or prod?
+$developmentVersion = false ;
+if ( preg_match( "/dev/i", basename( __FILE__, '.php' ) ) ) {
+	$developmentVersion = true ;
+	print PHP_EOL . "# NOTE: this script filename \"" . basename( __FILE__ ) . "\" contains \"dev\" so setting development-only options." . PHP_EOL . PHP_EOL ;
+}
+
+
 
 // =============================================================================================
-// Load our configuration data
-$configFile = dirname( __FILE__ ) . '/AWS_config.json' ;
+// Load our AWS Account & Customer Sites configuration data
+if ( $developmentVersion = true ) {
+	$configFile = dirname( __FILE__ ) . '/AWS_config-dev.json' ;
+} else {
+	$configFile = dirname( __FILE__ ) . '/AWS_config.json' ;
+}
+
 $configJSON = json_decode( file_get_contents( $configFile ) ) ;
 if ( ! isset( $configJSON ) || $configJSON == "" ) {
 	print "Error: No JSON returned for config file $configFile\n" ;
 	exit( STATE_UNKNOWN );
 }
 
-$commandOptions = getopt( "h", array( "appStack:", "profile:", "help" ) ) ;
+$commandOptions = getopt( "h", array( "appStack:", "profile:", "help", "generateJSON:" ) ) ;
 if ( isset( $commandOptions[ "h" ] ) || isset( $commandOptions[ "help" ] ) ) {
 	usage() ;
 	exit( STATE_UNKNOWN );
@@ -121,6 +149,63 @@ $customerProfile 	= $commandOptions[ "profile" ] ;
 
 
 
+
+// =============================================================================================
+// Set up the JSON output
+
+// Only do the JSON output if the command-line arg says so. This is because not all runs of
+// this script are going to be (re)generating the JSON! Most often this is being called to
+// just check the "freshness" of the on-disk configs.
+if ( isset( $commandOptions[ "generateJSON" ] ) && $commandOptions[ "generateJSON" ] == "true" ) {
+	$writeJSONforXI = true ;
+}
+
+$jsonFH = "" ;	// Global - will be null until / unless we're going to write out new JSON to disk
+
+if ( $writeJSONforXI ) {	// Only if we're told to make the donuts! We might be running this only to **check** the "freshness"
+
+	// Note this initial output dir is a TEMP dir. We only move the file to the "live" location at the end.
+	$JSONoutputfile = $nagios_base_dir . "/tmp/aws-json/" . $customerProfile . "-" . $appStack . "-alarms_" . time() . ".json" ;
+	$jsonFH = fopen( $JSONoutputfile, 'c' ) ;
+
+	if ( ! $jsonFH ) {
+		error_log( __FILE__ . " Error - can't open JSON output file " . $JSONoutputfile . PHP_EOL ) ;
+		exit( STATE_CRITICAL ) ;
+	}
+
+	if ( is_resource( $jsonFH ) && $developmentVersion ) {		// Debugging output for dev
+		print "# Note: Got command args \"--generateJSON=true\" so we are going to write to " . $JSONoutputfile . PHP_EOL ;
+	}
+
+	// http://php.net/manual/en/function.flock.php
+	if ( ! flock( $jsonFH, LOCK_EX ) ) {
+		error_log( __FILE__ . " Error - can't get exclusive lock on JSON output file " . $JSONoutputfile . PHP_EOL ) ;
+		fclose( $jsonFH ) ;
+		exit( STATE_CRITICAL ) ;
+	} else {
+		ftruncate( $jsonFH, 0 ) ;
+	}
+}
+
+$jsonOutput = array();	// This is the master object onto which all the output data will be attached
+
+// Init every list object as null array
+foreach( array( "hosts", "services", "hostgroups", "servicegroups", "skipping", "notes" ) as $type ) {
+	$jsonOutput[ $type ] = array() ;
+}
+
+$jsonOutput[ "timeStampHuman" ] = date("Y-m-d H:i:s") ;
+$jsonOutput[ "timeStamp" ] 	= time() ;
+
+
+// =============================================================================================
+
+
+
+
+
+
+
 // =============================================================================================
 // Misc. global variable setup
 
@@ -131,19 +216,16 @@ $defaultContactGroup = $configJSON->defaultContactGroup ;
 $nagiosContactGroupAlarms = $defaultContactGroup ;	// This should be replaced per-site later.
 
 if ( ! property_exists( $configJSON->accountsByName, $customerProfile ) ) {
-	print "Error: Can't find AWS account/profile \"$customerProfile\" in $configFile accountsByName\n" ;
-	exit( STATE_UNKNOWN );
+	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Can't find AWS account/profile \"$customerProfile\" in $configFile accountsByName" ) ;
 }
 
 if ( ! property_exists( $configJSON->accountsByName->$customerProfile, $appStack ) ) {
-	print "Error: Can't find app stack \"$appStack\" in $configFile accountsByName->$customerProfile\n" ;
-	exit( STATE_UNKNOWN );
+	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Can't find app stack \"$appStack\" in $configFile accountsByName->$customerProfile" ) ;
 }
 
 foreach( array( "customerShortName", "customerLongName", "tagFilters", "applicationSites" ) as $testThis ) {	// Validate these
 	if ( ! property_exists( $configJSON->accountsByName->$customerProfile->$appStack, $testThis ) ) {
-		print "Error: Missing \"$testThis\" in $configFile accountsByName->$customerProfile->$appStack\n" ;
-		exit( STATE_UNKNOWN );
+		bailout( STATE_UNKNOWN, $jsonFH, "# Error: Missing \"$testThis\" in $configFile accountsByName->$customerProfile->$appStack" ) ;
 	}
 }
 $customerShortName = $configJSON->accountsByName->$customerProfile->$appStack->customerShortName ;
@@ -164,12 +246,10 @@ $alarmsJSON = json_decode( shell_exec( $awsReadAlarmsCommand ) ) ;
 
 // Check for getting something back!
 if ( ! isset( $alarmsJSON ) || $alarmsJSON == "" ) {
-	print "Error - no JSON alarm data from $awsReadAlarmsCommand \n" ;
-	exit( STATE_UNKNOWN ) ;
+	bailout( STATE_UNKNOWN, $jsonFH, "# Error - no JSON alarm data from $awsReadAlarmsCommand" ) ;
 }
 if ( sizeof( $alarmsJSON->MetricAlarms ) < 1 ) {
-	print "Error: Got no Alarms back from $awsReadAlarmsCommand \n" ;
-	exit( STATE_UNKNOWN ) ;
+	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Got no Alarms back from $awsReadAlarmsCommand" ) ;
 }
 // =============================================================================================
 
@@ -208,8 +288,7 @@ $EC2InstancesJSON = json_decode( shell_exec( $awsReadEC2InstancesCommand ) ) ;
 
 // Check for getting something back!
 if ( ! isset( $EC2InstancesJSON ) || $EC2InstancesJSON == "" ) {
-	print "Error - no JSON data returned from \"$awsReadEC2InstancesCommand\" - could be a problem reaching the AWS API\n" ;
-	exit( STATE_UNKNOWN ) ;
+	bailout( STATE_UNKNOWN, $jsonFH, "# Error - no JSON data returned from \"$awsReadEC2InstancesCommand\" - could be a problem reaching the AWS API" ) ;
 }
 
 // Commented this out 2015-08-17 - not sure if we need to have any EC2 instances present.
@@ -238,7 +317,7 @@ echo <<<ENDOFTEXT
 
 ENDOFTEXT;
 
-echo "# " . $myName . "\n# by Stefan Wuensch, 2014 - 2015\n\n";
+echo "# " . $myName . "\n# by Stefan Wuensch, 2014 - 2015 - 2016 - 2017 - 2018 (Wow!)\n\n";
 
 print "# This config file generated: " . date("Y-m-d H:i:s") . "\n\n" ;
 
@@ -249,6 +328,11 @@ print "# Arguments passed to generate this config: --profile=" . $customerProfil
 $statsLeadingText = "Total number of" ;
 print "# Note: Search this file for the string \"$statsLeadingText\" to see statistics on the number of objects.\n\n\n" ;
 
+
+array_push( $jsonOutput[ "notes" ], $myName . " by Stefan Wuensch, 2014 - 2015 - 2016 - 2017 - 2018 (Wow!)" ) ;
+array_push( $jsonOutput[ "notes" ], "This JSON generated: " . date( "Y-m-d H:i:s" ) ) ;
+array_push( $jsonOutput[ "notes" ], "Config input to this script was: " . $configFile ) ;
+array_push( $jsonOutput[ "notes" ], "Arguments passed to generate this config: --profile=" . $customerProfile . " --appStack=" . $appStack ) ;
 
 
 
@@ -302,6 +386,32 @@ ENDOFTEXT;
 
 
 
+// Now add those Nagios objects in JSON form
+array_push( $jsonOutput[ "hosts" ], array(
+	"name"			=> "aws-host-CloudWatch-Alarm-$customerShortName",
+	"use"			=> "aws-host-active-check-$customerShortName",
+	"contact_groups"	=> "$defaultContactGroup",
+	"register"		=> "0"
+) ) ;
+
+array_push( $jsonOutput[ "services" ], array(
+	"name"				=> "aws-service-CloudWatch-Alarm-$customerShortName",
+	"use"				=> "aws-service-active-check-$customerShortName",
+	"contact_groups"		=> "$defaultContactGroup",
+	"check_command"			=> "check_AWS_CloudWatch_Alarm_dev!$customerProfile",
+	"notification_options"		=> "u,c,r,f,s",
+	"check_interval"		=> "30",
+	"retry_interval"		=> "25",
+	"notification_interval"		=> "30",
+	"max_check_attempts"		=> "1",
+	"event_handler"			=> "submit_AWS_config_refresh!$nagiosMasterName!Nagios config in sync - $customerShortName AWS CloudWatch Alarms!\$SERVICESTATE:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$LASTSERVICECHECK:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$",
+	"register"			=> "0"
+) ) ;
+
+
+
+
+
 
 
 
@@ -338,6 +448,7 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 
 		if ( ! isset( $siteID ) || $siteID == "" || ! isset( $instanceName ) || $instanceName == "" ) {
 			print "# Note: Instance $instanceID named \"$instanceName\" does not have all the expected Tags such as \"Product\" and/or \"aws:cloudformation:stack-name\".\n\n" ;
+			array_push( $jsonOutput[ "notes" ], "Instance $instanceID named \"$instanceName\" does not have all the expected Tags such as \"Product\" and/or \"aws:cloudformation:stack-name\"." ) ;
 // 2018-01-31 - Skipping disabled because it doesn't appear that we're using $siteID nor $instanceName right now!!
 // 			print "# Skipping instance $instanceID named \"$instanceName\" - found no usable info in Tags!\n\n" ;
 // 			continue ;
@@ -406,6 +517,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 				if ( ! isset( $allInstanceIDs[ $thisAlarmInstanceId ] ) ) {	// If we didn't find that InstanceId among all the Instances, it's bogus!
 					print "\n# Skipping host \"$hostName\" (built from CloudWatch Alarms, namespace $alarmInstance->Namespace) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
 					print "# This skipping means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated or removed!!\n\n\n" ;
+					array_push( $jsonOutput[ "notes" ], "Skipping host \"$hostName\" (built from CloudWatch Alarms, namespace $alarmInstance->Namespace) because there is no EC2 instance with that ID found from the filter ( $filters) !!! The CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated or removed!!" ) ;
 					continue ;
 				}
 			}
@@ -443,6 +555,11 @@ print "# $statsLeadingText AWS MetricAlarms: " . sizeof( $alarmsJSON->MetricAlar
 print "# $statsLeadingText Nagios AWS \"Hosts\": " . sizeof( $allHostNames ) . "\n\n";
 print "# Note: Host Groups added here are defined in hostgroups.cfg for use in other non-dynamic config files.\n\n\n";
 
+array_push( $jsonOutput[ "notes" ], "$statsLeadingText websites: " . sizeof( $allSiteNames ) ) ;
+array_push( $jsonOutput[ "notes" ], "$statsLeadingText AWS MetricAlarms: " . sizeof( $alarmsJSON->MetricAlarms ) ) ;
+array_push( $jsonOutput[ "notes" ], "$statsLeadingText Nagios AWS \"Hosts\": " . sizeof( $allHostNames ) ) ;
+
+
 foreach( $allHostNames as $hostName => $hostNameFrom ) {
 
 	$skipHostNotInConfig = "" ;				// A flag for whether or not we have a matching config file entry. If not, we're not going to write a Nagios config for it.
@@ -459,6 +576,7 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 					if ( property_exists( $applicationSiteInstance, "websiteHostName" ) && str_replace( "-", ".", $applicationSiteInstance->websiteHostName ) == $siteName ) {
 						$nagiosContactGroupAlarms = $applicationSiteInstance->nagiosContactGroupAlarms ;
 						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
+						array_push( $jsonOutput[ "notes" ], "Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file." ) ;
 						$hostToContactgroupMapping[ $hostNameFromSites ][ "contact_groups" ] = $nagiosContactGroupAlarms ;	// Build an association between the host name and the contact group for quick access when we do Services.
 						$skipHostNotInConfig = "" ;	// If we did find it, make sure we don't skip over it on the output!
 						$skipHostNames[ $hostName ] = "N" ;	// Flag it as to-be-skipped for later use outside these loops
@@ -474,6 +592,7 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 
 	if ( $skipHostNotInConfig == "Y" ) {
 		print "# NOTE: Skipping host name \"$hostName\" for $customerShortName because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
+		array_push( $jsonOutput[ "notes" ], "Skipping host name \"$hostName\" for $customerShortName because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section." ) ;
 		continue ;
 	}
 
@@ -481,6 +600,7 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 
 	if ( $hostNameFrom == "AWS/EC2:InstanceId" || $hostNameFrom == "System/Linux:InstanceId" ) {
 		print "# NOTE: \"$hostName\" is an EC2 Instance.\n" ;
+		array_push( $jsonOutput[ "notes" ], "\"$hostName\" is an EC2 Instance." ) ;
 // 2017-12-12 - No longer doing EC2 Instance config automation, so we will no longer skip.
 // 		print "# NOTE: \"$hostName\" is an EC2 Instance, so its Host definition will be built elsewhere by a different script.\n# Skipping host \"$hostName\" here.\n\n\n" ;
 // 		continue ;
@@ -493,7 +613,7 @@ define host {
 	_AWS_Data		$shortSiteName:$hostNameFrom
 	hostgroups		$customerShortName in AWS - All
 	contact_groups		$nagiosContactGroupAlarms
-	notes			Notes: AWS Account "<a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href="/nagios/cgi-bin/status.cgi?host=$hostName">each Nagios Service for this Host</a>.
+	notes			Notes: AWS Account "<a href='https://$customerProfile.signin.aws.amazon.com/console'>$customerProfile</a>". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href="/nagios/cgi-bin/status.cgi?host=$hostName">each Nagios Service for this Host</a>.
 	notes_url		https://$customerProfile.signin.aws.amazon.com/console
 }
 
@@ -502,7 +622,22 @@ define host {
 
 ENDOFTEXT;
 
-}
+
+// Now add that Nagios object in JSON form
+array_push( $jsonOutput[ "hosts" ], array(
+	"use"			=> "aws-host-CloudWatch-Alarm-$customerShortName",
+	"host_name"		=> "$hostName",
+	"_AWS_Data"		=> "$shortSiteName:$hostNameFrom",
+	"hostgroups"		=> "$customerShortName in AWS - All",
+	"contact_groups"	=> "$nagiosContactGroupAlarms",
+	"notes"			=> "Notes: AWS Account \"<a href='https://$customerProfile.signin.aws.amazon.com/console'>$customerProfile</a>\". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href=\"/nagios/cgi-bin/status.cgi?host=$hostName\">each Nagios Service for this Host</a>.",
+	"notes_url"		=> "https://$customerProfile.signin.aws.amazon.com/console"
+) ) ;
+
+
+
+}	// End of foreach()
+
 
 // var_dump( $allHostNames ) ;	// Debugging output
 // var_dump( $skipHostNames ) ;	// Debugging output
@@ -566,6 +701,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 				if ( ! isset( $allInstanceIDs[ $thisAlarmInstanceId ] ) ) {	// If we didn't find that InstanceId among all the Instances, it's bogus!
 					print "\n# Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (built from CloudWatch Alarms, namespace $alarmInstance->Namespace) because there is no EC2 instance with that ID found from the filter ( $filters) !!!\n" ;
 					print "# This skipping means the CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated or removed!!\n\n\n" ;
+					array_push( $jsonOutput[ "notes" ], "Skipping service \"$serviceName\" for AWS/EC2 Instance \"$hostName\" (built from CloudWatch Alarms, namespace $alarmInstance->Namespace) because there is no EC2 instance with that ID found from the filter ( $filters) !!! The CloudWatch Alarm \"$alarmInstance->AlarmName\" (MetricName $alarmInstance->MetricName) is stale and needs to be updated or removed!!" ) ;
 					continue ;
 				}
 			}
@@ -645,6 +781,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
 			} else {
 				print "# NOTE: Skipping service name \"$serviceName\" - Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\".\n\n\n" ;
+				array_push( $jsonOutput[ "notes" ], "Skipping service name \"$serviceName\" - Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\"." ) ;
 				continue ;
 			}
 
@@ -678,11 +815,26 @@ define service {
 
 ENDOFTEXT;
 
+
+array_push( $jsonOutput[ "services" ], array(
+	"use"			=> "aws-service-CloudWatch-Alarm-$customerShortName",
+	"host_name"		=> "$hostName",
+	"service_description"	=> "$serviceName",
+	"_AWS_Data"		=> "$alarmInstance->AlarmName",
+	"contact_groups"	=> "$nagiosContactGroupAlarms",
+	"notes"			=> "Notes: $serviceExtInfo ($primaryDimension = <a href=\"$actionURL\">$resourceID</a>, AlarmName = \"<a href='$notesURL'>$alarmInstance->AlarmName</a>\", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href=\"https://$customerProfile.signin.aws.amazon.com/console\">$customerProfile</a>)",
+	"notes_url"		=> "$notesURL",
+	"action_url"		=> "$actionURL"
+) ) ;
+
+
 		}
 	}
 }
 
 print "# $statsLeadingText Nagios AWS Services: $totalServices\n\n\n\n";
+array_push( $jsonOutput[ "notes" ], $statsLeadingText . " Nagios AWS Services: " . $totalServices ) ;
+
 
 
 
@@ -711,6 +863,15 @@ define hostgroup {
 
 ENDOFTEXT;
 	}				// End of Are there any hosts??
+
+
+array_push( $jsonOutput[ "hostgroups" ], array(
+	"hostgroup_name"	=> "$customerShortName in AWS - Incoming Alarms",
+	"alias"			=> "$customerLongName AWS Incoming SNS",
+	"members"		=> "$hostList"
+) ) ;
+
+
 
 // Next do a hostgroup for each site...
 
@@ -743,6 +904,15 @@ define hostgroup {
 
 ENDOFTEXT;
 
+
+array_push( $jsonOutput[ "hostgroups" ], array(
+	"hostgroup_name"	=> "$customerShortName in AWS - site $siteName",
+	"alias"			=> "$siteName $customerLongName",
+	"members"		=> "$hostList"
+) ) ;
+
+
+
 }
 
 
@@ -772,6 +942,13 @@ ENDOFTEXT;
 	}				// End of Are there any services??
 
 
+array_push( $jsonOutput[ "servicegroups" ], array(
+	"servicegroup_name"	=> "$customerShortName in AWS",
+	"alias"			=> "$customerShortName Service Checks from AWS",
+	"members"		=> "$serviceList"
+) ) ;
+
+
 
 
 
@@ -785,6 +962,53 @@ function usage() {
 // =============================================================================================
 
 
-print "# Completed OK at " . date("Y-m-d H:i:s") . "\n" ;
-exit( 0 );
+// =============================================================================================
+// Close out open filehandle and exit with message
+// http://php.net/manual/en/function.flock.php
+function bailout( $exit_state, $filehandle, $message ) {
+
+	if ( is_resource( $filehandle ) ) {
+		flock( $filehandle, LOCK_UN ) ;
+		fclose( $filehandle ) ;
+	}
+
+	print $message . PHP_EOL ;	// Print this to STDOUT no matter what!
+	exit( $exit_state ) ;
+
+}
+// =============================================================================================
+
+
+// Now we're in the wrap-up phase. Whew!
+
+array_push( $jsonOutput[ "notes" ], "Completed OK at " . date("Y-m-d H:i:s") ) ;
+
+// Send everything JSON out to file on disk, if we're supposed to do so.
+// Remember: The Nagios Core config file is sent to STDOUT, so this JSON file output here is
+// in addition to the "old-fashioned" Core config.
+if ( $writeJSONforXI ) {
+
+	// Write everything and make sure it worked!
+	if ( ! fwrite( $jsonFH, json_encode( $jsonOutput ) . PHP_EOL ) ) {
+		bailout( STATE_WARNING, $jsonFH, "# Error: Had a problem calling fwrite() to " . $JSONoutputfile ) ;
+	}
+	// Now since everything should be written, flush in preparation for closing the FH
+	if ( fflush( $jsonFH ) ) {
+		// If we got this far without error, call the JSON file good-to-go.
+		// Now it gets moved to the prod location in an atomic (hopefully) operation.
+		$JSONoutputfile_prod = str_replace( "/tmp/", "/etc/", $JSONoutputfile ) ;
+		if ( ! rename( $JSONoutputfile, $JSONoutputfile_prod ) ) {
+			bailout( STATE_WARNING, $jsonFH, "# Error: Had a problem calling rename() to move the output file to the prod Nagios location from " . $JSONoutputfile . " to " . $JSONoutputfile_prod ) ;
+		} else {
+			print "#" . PHP_EOL
+				. "# JSON file written OK to " . $JSONoutputfile_prod . PHP_EOL
+				. "#" . PHP_EOL ;
+		}
+	}
+}
+
+
+// IMPORTANT: The VERY LAST line of the output HAS TO have the string "Completed OK".
+// See script "update_Nagios_AWS_config.zsh" for how this is used.
+bailout( STATE_OK, $jsonFH, "# Completed OK at " . date("Y-m-d H:i:s") ) ;
 ?>

@@ -59,11 +59,11 @@
 // 2016-10-31 - Added "AWS Account" to Host and Service Notes, and added AWS Console URL as notes_url on Host
 // 2017-03-22 - Added "service" to the line 546 skipping notification, plus quotes around the service name
 // 2017-08-23 - Remove quotes around word "host" line 418 to make the "Skipping" comments uniform everywhere
-// 		Add property_exists() validation for $customerProfile
+// 		Add property_exists() validation for $AWS_Account_Name
 // 2017-11-01 - Add first pass at handling namespace AWS/ApplicationELB (ELBv2)
 // 2017-11-22 - Remove slash "/" from Host and Service names for Nagios XI compatibility
 // 		Update AppELB action_url to search for TargetGroups
-// 		Add customerProfile to last-resort "constructed name" to avoid name collisions across AWS accounts
+// 		Add AWS_Account_Name to last-resort "constructed name" to avoid name collisions across AWS accounts
 // 2017-12-12 - Replace "CloudFront" in template names with correct "CloudWatch"
 // 		Add Instance Tag search for "Product" to try and make "siteID"
 // 		Clarify message when skipping because EC2 Instance is no longer there
@@ -81,12 +81,16 @@
 // 2018-02-07 - Read this script name to determine dev/prod and set development-only options accordingly
 // 2018-02-12 - Major changes in order to produce JSON file output (in addition to existing Nagios config on STDOUT)
 // 		New function bailout() to replace previous "print" and "exit" - required for closing JSON filehandle on exit
+// 2018-02-13 - Brought in four new Nagios object definitions previously only living in static config files
+// 2018-02-16 - Global change of "customerProfile" to "AWS_Account_Name" for clarity
+// 		Add logic to figure out when to generate the AWS Account parent Host object such that there's ever only one
+// 2018-02-20 - Refactor Host and Service templates so that automation-created ones are completely independent of the static ones
 // =============================================================================================
 
 
 
 error_reporting( E_ALL );
-ini_set( 'display_errors', true );
+ini_set( 'display_errors', true );	// Note this is on for both Dev and Prod, since this script is not a web service - therefore it's safe.
 ini_set( 'html_errors', false );
 date_default_timezone_set('America/New_York');
 
@@ -110,14 +114,16 @@ $writeJSONforXI = false ;
 $developmentVersion = false ;
 if ( preg_match( "/dev/i", basename( __FILE__, '.php' ) ) ) {
 	$developmentVersion = true ;
-	print PHP_EOL . "# NOTE: this script filename \"" . basename( __FILE__ ) . "\" contains \"dev\" so setting development-only options." . PHP_EOL . PHP_EOL ;
+	print "#" . PHP_EOL	// Need to make sure any vertical spacing is a comment if it could be conditional, otherwise it screws up the "check_AWS_Nagios_Config_Freshness"
+		. "# NOTE: this script filename \"" . basename( __FILE__ ) . "\" contains \"dev\" so setting development-only options." . PHP_EOL
+		. "#" . PHP_EOL ;
 }
 
 
 
 // =============================================================================================
 // Load our AWS Account & Customer Sites configuration data
-if ( $developmentVersion = true ) {
+if ( $developmentVersion == true ) {
 	$configFile = dirname( __FILE__ ) . '/AWS_config-dev.json' ;
 } else {
 	$configFile = dirname( __FILE__ ) . '/AWS_config.json' ;
@@ -142,7 +148,7 @@ foreach( array( "appStack", "profile" ) as $testThis ) {	// Check for required a
 	}
 }
 $appStack 		= $commandOptions[ "appStack" ] ;
-$customerProfile 	= $commandOptions[ "profile" ] ;
+$AWS_Account_Name 	= $commandOptions[ "profile" ] ;
 // =============================================================================================
 
 
@@ -165,7 +171,7 @@ $jsonFH = "" ;	// Global - will be null until / unless we're going to write out 
 if ( $writeJSONforXI ) {	// Only if we're told to make the donuts! We might be running this only to **check** the "freshness"
 
 	// Note this initial output dir is a TEMP dir. We only move the file to the "live" location at the end.
-	$JSONoutputfile = $nagios_base_dir . "/tmp/aws-json/" . $customerProfile . "-" . $appStack . "-alarms_" . time() . ".json" ;
+	$JSONoutputfile = $nagios_base_dir . "/tmp/aws-json/" . $AWS_Account_Name . "-" . $appStack . "-alarms_" . time() . ".json" ;
 	$jsonFH = fopen( $JSONoutputfile, 'c' ) ;
 
 	if ( ! $jsonFH ) {
@@ -215,21 +221,75 @@ $nagiosMasterName = $configJSON->nagiosMasterName ;
 $defaultContactGroup = $configJSON->defaultContactGroup ;
 $nagiosContactGroupAlarms = $defaultContactGroup ;	// This should be replaced per-site later.
 
-if ( ! property_exists( $configJSON->accountsByName, $customerProfile ) ) {
-	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Can't find AWS account/profile \"$customerProfile\" in $configFile accountsByName" ) ;
+if ( ! property_exists( $configJSON->accountsByName, $AWS_Account_Name ) ) {
+	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Can't find AWS account/profile \"$AWS_Account_Name\" in $configFile accountsByName" ) ;
 }
 
-if ( ! property_exists( $configJSON->accountsByName->$customerProfile, $appStack ) ) {
-	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Can't find app stack \"$appStack\" in $configFile accountsByName->$customerProfile" ) ;
+if ( ! property_exists( $configJSON->accountsByName->$AWS_Account_Name, $appStack ) ) {
+	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Can't find app stack \"$appStack\" in $configFile accountsByName->$AWS_Account_Name" ) ;
 }
 
 foreach( array( "customerShortName", "customerLongName", "tagFilters", "applicationSites" ) as $testThis ) {	// Validate these
-	if ( ! property_exists( $configJSON->accountsByName->$customerProfile->$appStack, $testThis ) ) {
-		bailout( STATE_UNKNOWN, $jsonFH, "# Error: Missing \"$testThis\" in $configFile accountsByName->$customerProfile->$appStack" ) ;
+	if ( ! property_exists( $configJSON->accountsByName->$AWS_Account_Name->$appStack, $testThis ) ) {
+		bailout( STATE_UNKNOWN, $jsonFH, "# Error: Missing \"$testThis\" in $configFile accountsByName->$AWS_Account_Name->$appStack" ) ;
 	}
 }
-$customerShortName = $configJSON->accountsByName->$customerProfile->$appStack->customerShortName ;
-$customerLongName  = $configJSON->accountsByName->$customerProfile->$appStack->customerLongName ;
+$customerShortName = $configJSON->accountsByName->$AWS_Account_Name->$appStack->customerShortName ;
+$customerLongName  = $configJSON->accountsByName->$AWS_Account_Name->$appStack->customerLongName ;
+
+
+
+// Need to know how many different customer / stack groups we have.
+// First check the number of "customers" by building up an array of all the "customer" (appStack) names
+$appStacks = array() ;
+foreach( $configJSON->accountsByName->$AWS_Account_Name as $appStack_try => $garbage ) {	// We only care about the name of the "appStack" object
+	if ( property_exists( $configJSON->accountsByName->$AWS_Account_Name->$appStack_try, "applicationSites" ) ) {
+		array_push( $appStacks, $appStack_try ) ;	// Build up an array of all the "appStack" names which have an "applicationSites" parameter
+	}
+}
+sort( $appStacks ) ;
+// Real-world 2018-02-15 example of resulting $appStacks array for AWS account "admintsdev": [ "ACE", "ATS", "QlikView" ]
+
+// Set defaults. We don't know yet if we're building the parent in this appStack or even if there exists an appStack where it will be built.
+$buildAccountParent = false ;		// yes or no the parent will be built THIS TIME
+$accountParent_verified_build = false ;	// yes or no the parent will be built SOME TIME in this OR another specified appStack
+
+// If there's zero or one appStack with a applicationSites then we have to build the parent this time, here, now. Period. End of story.
+if ( count( $appStacks ) == 0 || count( $appStacks ) == 1 ) {
+	$buildAccountParent = true ;
+	$accountParent_verified_build = true ;
+} else { // However...
+	// Since here we have more than one, we HAVE TO have the "buildAccountParentInCustomer" provided with some valid appStack as its value.
+	// Make sure it exists, and see if the specified appStack is defined! (This is a check against typos.)
+	if ( property_exists( $configJSON->accountsByName->$AWS_Account_Name, "buildAccountParentInCustomer" )
+			&& property_exists( $configJSON->accountsByName->$AWS_Account_Name, $configJSON->accountsByName->$AWS_Account_Name->buildAccountParentInCustomer ) ) {
+		$accountParent_verified_build = true ;	// At this point all we know is that the appStack to get the parent in it is actually a defined appStack object.
+	}
+	// Now we see if the specified appStack - which we know is also defined - is the one that gets the parent built in it.
+	if ( $accountParent_verified_build == true
+			&& $configJSON->accountsByName->$AWS_Account_Name->buildAccountParentInCustomer == $appStack ) {
+		$buildAccountParent = true ;	// Whew!! Now we finally know that we're going to build the parent object this time, here, now.
+	}
+}
+
+// Take a deep breath. If we're at this point and we don't have an accountParent_verified_build, it means
+// someone probably made a typo when writing the input file. Either they goofed on the value in buildAccountParentInCustomer,
+// or they left it out completely when it should be there for a multiple-customer AWS Account.
+// Whatever the reason, we'll make a last-ditch attempt at figuring out where to build the parent...
+// because the alternative is either a duplicate Host definition of that parent, or no parent at all.
+// Either of those cases will be a fatal Nagios config error!!!
+if ( $accountParent_verified_build != true ) {
+	// Since we have the sorted array $appStacks of all the "customer" names, as a last resort
+	// we'll decide to build the parent object now if we happen to be working with the first
+	// one out of all the appStack "customer" names. In theory this is safe because out of a
+	// sorted deterministic list that is > 1 there will always be a consistent first element.
+	// If we act when we're matching the first element, it should be unique!!
+	if ( $appStacks[ 0 ] == $appStack ) {
+		$buildAccountParent = true ;
+	}
+}
+
+
 
 // Need to ensure these are empty because we bolt on additional strings later.
 $hostList = "";
@@ -241,7 +301,7 @@ $serviceList = "";
 
 // =============================================================================================
 // Get Alarms
-$awsReadAlarmsCommand = "aws cloudwatch describe-alarms --profile=" . $customerProfile ;
+$awsReadAlarmsCommand = "aws cloudwatch describe-alarms --profile=" . $AWS_Account_Name ;
 $alarmsJSON = json_decode( shell_exec( $awsReadAlarmsCommand ) ) ;
 
 // Check for getting something back!
@@ -273,11 +333,11 @@ $region = $regionExploded[ 3 ] ;
 
 
 $awsReadEC2InstancesCommand  = "aws ec2 describe-instances" ;
-$awsReadEC2InstancesCommand .= " --profile=" . $customerProfile ;
+$awsReadEC2InstancesCommand .= " --profile=" . $AWS_Account_Name ;
 
 // $filters = "\"Name=instance-state-name,Values=running\" " ;		// Use this if we want to only process running instances
 $filters = "" ;		// Starting with nothing because we're adding in the next loop, if any are in the config.
-foreach( $configJSON->accountsByName->$customerProfile->$appStack->tagFilters as $filter ) {
+foreach( $configJSON->accountsByName->$AWS_Account_Name->$appStack->tagFilters as $filter ) {
 	$filters .= "\"$filter\" " ;
 }
 if ( isset( $filters ) && $filters != "" ) {				// Only if there are some filters there...
@@ -323,7 +383,8 @@ print "# This config file generated: " . date("Y-m-d H:i:s") . "\n\n" ;
 
 print "# Config input to this script was: " . $configFile . "\n\n" ;
 
-print "# Arguments passed to generate this config: --profile=" . $customerProfile . " --appStack=" . $appStack . "\n\n";
+print "# Arguments passed to generate this config: --profile=" . $AWS_Account_Name . " --appStack=" . $appStack
+	. ( $writeJSONforXI ? " --generateJSON=true" : "" ) . "\n\n";
 
 $statsLeadingText = "Total number of" ;
 print "# Note: Search this file for the string \"$statsLeadingText\" to see statistics on the number of objects.\n\n\n" ;
@@ -332,7 +393,7 @@ print "# Note: Search this file for the string \"$statsLeadingText\" to see stat
 array_push( $jsonOutput[ "notes" ], $myName . " by Stefan Wuensch, 2014 - 2015 - 2016 - 2017 - 2018 (Wow!)" ) ;
 array_push( $jsonOutput[ "notes" ], "This JSON generated: " . date( "Y-m-d H:i:s" ) ) ;
 array_push( $jsonOutput[ "notes" ], "Config input to this script was: " . $configFile ) ;
-array_push( $jsonOutput[ "notes" ], "Arguments passed to generate this config: --profile=" . $customerProfile . " --appStack=" . $appStack ) ;
+array_push( $jsonOutput[ "notes" ], "Arguments passed to generate this config: --profile=" . $AWS_Account_Name . " --appStack=" . $appStack . ( $writeJSONforXI ? " --generateJSON=true" : "" ) ) ;
 
 
 
@@ -350,10 +411,13 @@ echo <<<ENDOFTEXT
 # Note: Template names are automatically generated, ending with "-$customerShortName" to differentiate from other AWS customers.
 # "$defaultContactGroup" is a default, which is expected to be replaced by a value from "nagiosContactGroupAlarms" out of the site config file.
 
+
 define host {
 	name				aws-host-CloudWatch-Alarm-$customerShortName
-	use				aws-host-active-check-$customerShortName
+	use				generic-host
 	contact_groups			$defaultContactGroup
+	check_command			FAKE-host-alive
+	parents				aws-$AWS_Account_Name-account
 	register			0
 }
 
@@ -362,9 +426,9 @@ define host {
 # The Active checking of services is just to fill in when we'd otherwise be waiting around for a Passive check.
 define service {
 	name				aws-service-CloudWatch-Alarm-$customerShortName
-	use				aws-service-active-check-$customerShortName
+	use				generic-service
 	contact_groups			$defaultContactGroup
-	check_command			check_AWS_CloudWatch_Alarm!$customerProfile
+	check_command			check_AWS_CloudWatch_Alarm!$AWS_Account_Name
 	notification_options		u,c,r,f,s
 	check_interval			30
 	retry_interval			25
@@ -379,26 +443,53 @@ define service {
 }
 
 
+ENDOFTEXT;
+
+
+// Now is the time to generate the parent object for the AWS Account,
+// based on the discovery turmoil we had to do earlier.
+if ( $buildAccountParent == true ) {
+	echo <<<ENDOFTEXT
+
+
+###############################################################################
+###############################################################################
+# This is the Parent of everything in the "$AWS_Account_Name" account.
+define host {
+	use			generic-host
+	host_name		aws-$AWS_Account_Name-account
+	hostgroups		$customerShortName in AWS - All
+	check_command		FAKE-host-alive
+	action_url		https://$AWS_Account_Name.signin.aws.amazon.com/console
+	parents			aws-us-east-1
+}
+
 
 
 
 ENDOFTEXT;
 
+}
 
 
-// Now add those Nagios objects in JSON form
+
+// Now add those Nagios objects in JSON form. Note how these are simply turning regular
+// Nagios config objects into key/value pairs in an array item.
+
 array_push( $jsonOutput[ "hosts" ], array(
 	"name"			=> "aws-host-CloudWatch-Alarm-$customerShortName",
-	"use"			=> "aws-host-active-check-$customerShortName",
+	"use"			=> "generic-host",
 	"contact_groups"	=> "$defaultContactGroup",
+	"check_command"		=> "FAKE-host-alive",
+	"parents"		=> "aws-$AWS_Account_Name-account",
 	"register"		=> "0"
 ) ) ;
 
 array_push( $jsonOutput[ "services" ], array(
 	"name"				=> "aws-service-CloudWatch-Alarm-$customerShortName",
-	"use"				=> "aws-service-active-check-$customerShortName",
+	"use"				=> "generic-service",
 	"contact_groups"		=> "$defaultContactGroup",
-	"check_command"			=> "check_AWS_CloudWatch_Alarm_dev!$customerProfile",
+	"check_command"			=> "check_AWS_CloudWatch_Alarm!$AWS_Account_Name",
 	"notification_options"		=> "u,c,r,f,s",
 	"check_interval"		=> "30",
 	"retry_interval"		=> "25",
@@ -409,8 +500,16 @@ array_push( $jsonOutput[ "services" ], array(
 ) ) ;
 
 
-
-
+if ( $buildAccountParent == true ) {
+	array_push( $jsonOutput[ "hosts" ], array(
+		"use"			=> "generic-host",
+		"host_name"		=> "aws-$AWS_Account_Name-account",
+		"hostgroups"		=> "$customerShortName in AWS - All",
+		"check_command"		=> "FAKE-host-alive",
+		"action_url"		=> "https://$AWS_Account_Name.signin.aws.amazon.com/console",
+		"parents"		=> "aws-us-east-1"
+	) ) ;
+}
 
 
 
@@ -486,7 +585,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
 				$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
 			} else {
-				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $customerProfile ;	// As a last resort, make up something that will still work when we split it later.
+				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $AWS_Account_Name ;	// As a last resort, make up something that will still work when we split it later.
 			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
@@ -572,7 +671,7 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 	foreach( $allSiteNames as $siteName => $allHostNamesFromSites ) {
 		foreach( $allHostNamesFromSites as $hostNameFromSites => $garbage ) {	// The value doesn't matter, only the key name
 			if ( $hostNameFromSites == $hostName ) {
-				foreach( $configJSON->accountsByName->$customerProfile->$appStack->applicationSites as $applicationSiteInstance ) {
+				foreach( $configJSON->accountsByName->$AWS_Account_Name->$appStack->applicationSites as $applicationSiteInstance ) {
 					if ( property_exists( $applicationSiteInstance, "websiteHostName" ) && str_replace( "-", ".", $applicationSiteInstance->websiteHostName ) == $siteName ) {
 						$nagiosContactGroupAlarms = $applicationSiteInstance->nagiosContactGroupAlarms ;
 						print "# Found Nagios \"host\" name \"$hostNameFromSites\" in site $siteName which has {nagiosContactGroupAlarms->$nagiosContactGroupAlarms} in the config file.\n" ;
@@ -591,8 +690,8 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 	}
 
 	if ( $skipHostNotInConfig == "Y" ) {
-		print "# NOTE: Skipping host name \"$hostName\" for $customerShortName because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
-		array_push( $jsonOutput[ "notes" ], "Skipping host name \"$hostName\" for $customerShortName because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $customerProfile . "\": { \"" . $appStack . "\" } } section." ) ;
+		print "# NOTE: Skipping host name \"$hostName\" for $customerShortName because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $AWS_Account_Name . "\": { \"" . $appStack . "\" } } section.\n\n\n" ;
+		array_push( $jsonOutput[ "notes" ], "Skipping host name \"$hostName\" for $customerShortName because it matched no \"nagiosContactGroupAlarms\" in the config file { \"" . $AWS_Account_Name . "\": { \"" . $appStack . "\" } } section." ) ;
 		continue ;
 	}
 
@@ -613,8 +712,8 @@ define host {
 	_AWS_Data		$shortSiteName:$hostNameFrom
 	hostgroups		$customerShortName in AWS - All
 	contact_groups		$nagiosContactGroupAlarms
-	notes			Notes: AWS Account "<a href='https://$customerProfile.signin.aws.amazon.com/console'>$customerProfile</a>". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href="/nagios/cgi-bin/status.cgi?host=$hostName">each Nagios Service for this Host</a>.
-	notes_url		https://$customerProfile.signin.aws.amazon.com/console
+	notes			Notes: AWS Account "<a href='https://$AWS_Account_Name.signin.aws.amazon.com/console'>$AWS_Account_Name</a>". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href="/nagios/cgi-bin/status.cgi?host=$hostName">each Nagios Service for this Host</a>.
+	notes_url		https://$AWS_Account_Name.signin.aws.amazon.com/console
 }
 
 
@@ -630,8 +729,8 @@ array_push( $jsonOutput[ "hosts" ], array(
 	"_AWS_Data"		=> "$shortSiteName:$hostNameFrom",
 	"hostgroups"		=> "$customerShortName in AWS - All",
 	"contact_groups"	=> "$nagiosContactGroupAlarms",
-	"notes"			=> "Notes: AWS Account \"<a href='https://$customerProfile.signin.aws.amazon.com/console'>$customerProfile</a>\". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href=\"/nagios/cgi-bin/status.cgi?host=$hostName\">each Nagios Service for this Host</a>.",
-	"notes_url"		=> "https://$customerProfile.signin.aws.amazon.com/console"
+	"notes"			=> "Notes: AWS Account \"<a href='https://$AWS_Account_Name.signin.aws.amazon.com/console'>$AWS_Account_Name</a>\". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href=\"/nagios/cgi-bin/status.cgi?host=$hostName\">each Nagios Service for this Host</a>.",
+	"notes_url"		=> "https://$AWS_Account_Name.signin.aws.amazon.com/console"
 ) ) ;
 
 
@@ -663,7 +762,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 			} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
 				$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
 			} else {
-				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $customerProfile ;	// As a last resort, make up something that will still work when we split it later.
+				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $AWS_Account_Name ;	// As a last resort, make up something that will still work when we split it later.
 			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
@@ -805,7 +904,7 @@ define service {
 	service_description		$serviceName
 	_AWS_Data			$alarmInstance->AlarmName
 	contact_groups			$nagiosContactGroupAlarms
-	notes				Notes: $serviceExtInfo ($primaryDimension = <a href="$actionURL">$resourceID</a>, AlarmName = "<a href='$notesURL'>$alarmInstance->AlarmName</a>", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href="https://$customerProfile.signin.aws.amazon.com/console">$customerProfile</a>)
+	notes				Notes: $serviceExtInfo ($primaryDimension = <a href="$actionURL">$resourceID</a>, AlarmName = "<a href='$notesURL'>$alarmInstance->AlarmName</a>", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href="https://$AWS_Account_Name.signin.aws.amazon.com/console">$AWS_Account_Name</a>)
 	notes_url			$notesURL
 	action_url			$actionURL
 }
@@ -822,7 +921,7 @@ array_push( $jsonOutput[ "services" ], array(
 	"service_description"	=> "$serviceName",
 	"_AWS_Data"		=> "$alarmInstance->AlarmName",
 	"contact_groups"	=> "$nagiosContactGroupAlarms",
-	"notes"			=> "Notes: $serviceExtInfo ($primaryDimension = <a href=\"$actionURL\">$resourceID</a>, AlarmName = \"<a href='$notesURL'>$alarmInstance->AlarmName</a>\", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href=\"https://$customerProfile.signin.aws.amazon.com/console\">$customerProfile</a>)",
+	"notes"			=> "Notes: $serviceExtInfo ($primaryDimension = <a href=\"$actionURL\">$resourceID</a>, AlarmName = \"<a href='$notesURL'>$alarmInstance->AlarmName</a>\", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href=\"https://$AWS_Account_Name.signin.aws.amazon.com/console\">$AWS_Account_Name</a>)",
 	"notes_url"		=> "$notesURL",
 	"action_url"		=> "$actionURL"
 ) ) ;
@@ -846,12 +945,31 @@ array_push( $jsonOutput[ "notes" ], $statsLeadingText . " Nagios AWS Services: "
 
 $hostList = rtrim( $hostList, "," ) ; // Trim off the last comma
 
-	if ( $hostList != "" ) {	// Are there any hosts??
-		echo <<<ENDOFTEXT
+echo <<<ENDOFTEXT
 
 
 ###############################################################################
 # Hostgroups
+
+define hostgroup {
+	hostgroup_name	$customerShortName in AWS - All
+	alias		$customerLongName - applications in the Amazon cloud
+	members		$nagiosMasterName
+}
+
+ENDOFTEXT;
+
+array_push( $jsonOutput[ "hostgroups" ], array(
+	"hostgroup_name"	=> "$customerShortName in AWS - All",
+	"alias"			=> "$customerLongName - applications in the Amazon cloud",
+	"members"		=> "$nagiosMasterName"
+) ) ;
+
+
+// Only create the "Incoming Alarms" Host Group if there are members...
+// because a Host Group without at least one member is not allowed.
+if ( $hostList != "" ) {	// Are there any hosts??
+	echo <<<ENDOFTEXT
 
 define hostgroup {
 	hostgroup_name	$customerShortName in AWS - Incoming Alarms
@@ -862,15 +980,14 @@ define hostgroup {
 
 
 ENDOFTEXT;
-	}				// End of Are there any hosts??
 
+	array_push( $jsonOutput[ "hostgroups" ], array(
+		"hostgroup_name"	=> "$customerShortName in AWS - Incoming Alarms",
+		"alias"			=> "$customerLongName AWS Incoming SNS",
+		"members"		=> "$hostList"
+	) ) ;
 
-array_push( $jsonOutput[ "hostgroups" ], array(
-	"hostgroup_name"	=> "$customerShortName in AWS - Incoming Alarms",
-	"alias"			=> "$customerLongName AWS Incoming SNS",
-	"members"		=> "$hostList"
-) ) ;
-
+}				// End of Are there any hosts??
 
 
 // Next do a hostgroup for each site...
@@ -1000,7 +1117,7 @@ if ( $writeJSONforXI ) {
 		if ( ! rename( $JSONoutputfile, $JSONoutputfile_prod ) ) {
 			bailout( STATE_WARNING, $jsonFH, "# Error: Had a problem calling rename() to move the output file to the prod Nagios location from " . $JSONoutputfile . " to " . $JSONoutputfile_prod ) ;
 		} else {
-			print "#" . PHP_EOL
+			print "#" . PHP_EOL	// Need to make sure any vertical spacing is a comment if it could be conditional, otherwise it screws up the "check_AWS_Nagios_Config_Freshness"
 				. "# JSON file written OK to " . $JSONoutputfile_prod . PHP_EOL
 				. "#" . PHP_EOL ;
 		}

@@ -2,7 +2,7 @@
 
 // aws_sns_receiver.php
 // 
-// by Stefan Wuensch 2014 - 2017
+// by Stefan Wuensch 2014 - 2018
 // 
 // This script is a webhook to receive AWS CloudWatch Alarm messages via SNS and
 // process the Message details into a Nagios Passive Check results command.
@@ -69,7 +69,12 @@
 // Include the non-OK HTTP status in the STDOUT as well as the header. Log & handle an error if the
 // Alarm Name doesn't have at least one space like it supposed to have. Include output to the
 // file being monitored by Nagios for an Alarm notification, in addition to the Scheduled Event type.
-// 
+//
+// 2018-02-14: Replace "/" with "_" in Host and Service names for XI Import Prep Tool compatibility.
+// This character replacement was done on "Nagios-config-from-alarms.php" on 2017-11-22 but it was
+// missed here until now. The previous lack of this substitution was making incoming SNS messages
+// turn into Host & Service names that did not match what the automation had generated, so they were
+// getting dropped with logged warnings that said "the host could not be found".
 
 
 
@@ -416,6 +421,8 @@ if ( $safeToProcess ) {
 		$webSiteName = str_replace( "-", ".", $webSiteName ) ;
 		$nagiosHostName = $webSiteName . ":" . $messageJSON->Trigger->Dimensions[ 0 ]->value ;
 		$nagiosServiceName = $messageJSON->Trigger->MetricName . ": " . $messageJSON->AlarmName ;	// Updated 2015-08-28 to match the new format from ~nagios/libexec/FAS/Nagios-config-from-alarms.php line 452 -- Stefan
+		$nagiosHostName = str_replace( "/", "_", $nagiosHostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
+		$nagiosServiceName = str_replace( "/", "_", $nagiosServiceName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
 
 		if ( isset( $alarmNameExploded[ 1 ] ) && $alarmNameExploded[ 1 ] != null ) {
 			$alarmNameExploded1 = $alarmNameExploded[ 1 ] ;

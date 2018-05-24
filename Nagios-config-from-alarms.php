@@ -85,6 +85,7 @@
 // 2018-02-16 - Global change of "customerProfile" to "AWS_Account_Name" for clarity
 // 		Add logic to figure out when to generate the AWS Account parent Host object such that there's ever only one
 // 2018-02-20 - Refactor Host and Service templates so that automation-created ones are completely independent of the static ones
+// 2018-05-23 - Add illegal character stripping from Alarm (Service) name
 // =============================================================================================
 
 
@@ -101,6 +102,7 @@ include_once( dirname( __FILE__ ) . '/utils.php' );
 // The Nagios Core 'root' directory / install base. Not necessarily
 // the same as the user 'nagios' $HOME so we have to specify it.
 $nagios_base_dir = "/usr/local/nagios" ;
+$nagios_core_cfg = $nagios_base_dir . "/etc/nagios.cfg" ;	// This is the default Nagios Core main config file location; it is rarely located elsewhere.
 
 
 // 2018-02-07 - Do we write out the JSON for import to Nagios XI?
@@ -118,6 +120,49 @@ if ( preg_match( "/dev/i", basename( __FILE__, '.php' ) ) ) {
 		. "# NOTE: this script filename \"" . basename( __FILE__ ) . "\" contains \"dev\" so setting development-only options." . PHP_EOL
 		. "#" . PHP_EOL ;
 }
+
+
+
+
+
+// =============================================================================================
+// 2018-05-23 Grab the list of illegal characters from the main Nagios config file.
+// If that's not possible, use a fall-back default value.
+// By using the list of characters from the nagios.cfg file, we have just one place
+// to maintain that list! W00t!
+
+// Set our fall-back. This char list is taken from prod Nagios Core config as of 2018-05-23
+// Also see https://assets.nagios.com/downloads/nagioscore/docs/nagioscore/4/en/configmain.html
+$illegal_object_name_chars_default = "`~!$%^&*|'\"<>?,()=";
+$illegal_object_name_chars = $illegal_object_name_chars_default ;
+$illegal_object_name_chars_match = "/^illegal_object_name_chars=\b/" ;
+$illegal_object_name_char_replacement = '@' ;
+
+$nagios_core_cfg_FH = fopen( $nagios_core_cfg, "r");
+if ( ! $nagios_core_cfg_FH ) {
+	print "# Note: Could not open $nagios_core_cfg for reading, so using default list of illegal_object_name_chars: $illegal_object_name_chars" . PHP_EOL ;
+} else {
+	while ( ! feof( $nagios_core_cfg_FH ) ) {
+		$this_line = fgets( $nagios_core_cfg_FH, 256) ;				// We are going to assume for sanity that max line length is 256 chars.
+		if ( preg_match( $illegal_object_name_chars_match, $this_line ) ) {	// Only match if it begins the line, not a comment or other reference.
+			$illegal_object_name_chars = preg_replace( $illegal_object_name_chars_match, '', $this_line ) ;
+			break ;								// Bail out of loop on the first one found.
+		}
+	}
+}
+fclose( $nagios_core_cfg_FH ) ;
+
+// Finally, turn the string of all the illegal characters into an array of single characters,
+// because that's what we're going to feed (an array) to str_replace() so that we don't have
+// to make it into a regex to use with preg_replace(). That would be ugly.
+$illegal_object_name_chars_array = str_split( $illegal_object_name_chars ) ;
+
+// print $illegal_object_name_chars . PHP_EOL ;		// Debugging
+// print "debug exit" . PHP_EOL; exit ;			// Debugging
+// =============================================================================================
+
+
+
 
 
 
@@ -771,6 +816,15 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 			$resourceID = 	$alarmInstance->Dimensions[ 0 ]->Value ;
 			$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
 			$serviceName =	str_replace( "/", "_", $serviceName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
+
+			// 2018-05-24 Handle illegal characters
+			$serviceName_before_fixing = $serviceName ;		// Keep track of what it was before the fixing / replacement
+			$serviceName =	str_replace( $illegal_object_name_chars_array, $illegal_object_name_char_replacement, $serviceName ) ;	// Replace each and every illegal character!
+			if ( $serviceName != $serviceName_before_fixing ) {
+				$serviceName = $serviceName . " illegal characters " . md5( $hostName . $serviceName ) ;	// Add a hash to prevent Nagios object name collisions!!! W00t!!
+			}
+
+
 			$primaryDimension = $alarmInstance->Dimensions[ 0 ]->Name ;
 
 			// If the Alarm is for an EC2 Instance (either of the two Namespaces) make sure that Instance ID actually exists!
@@ -809,6 +863,9 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 				$serviceExtInfo = $alarmInstance->AlarmDescription ;
 			} else {
 				$serviceExtInfo = "(No \"AlarmDescription\" found for this CloudWatch Alarm)" ;
+			}
+			if ( $serviceName != $serviceName_before_fixing ) {	// 2018-05-24 for illegal character handling
+				$serviceExtInfo = "Illegal characters found in Alarm Name have been replaced with '$illegal_object_name_char_replacement'. " . $serviceExtInfo ;
 			}
 			$namespace =      $alarmInstance->Namespace ;
 

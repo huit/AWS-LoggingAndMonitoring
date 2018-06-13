@@ -86,6 +86,12 @@
 // 		Add logic to figure out when to generate the AWS Account parent Host object such that there's ever only one
 // 2018-02-20 - Refactor Host and Service templates so that automation-created ones are completely independent of the static ones
 // 2018-05-23 - Add illegal character stripping from Alarm (Service) name
+// 2018-06-11 - Add illegal character stripping from Alarm (Host) name - because without this, bogus characters in the 
+// 		JSON configuration input 'websiteHostName' parameter would still be processed into illegal Host Names.
+// 		Since ITS DevOps will be configuring their own automation inputs in the future, and they won't necessarily
+// 		know all the illegal characters, this prevents them from knocking over the entire Nagios Core with bad names.
+// 		Also move illegal character replacement into function fix_illegal_object_name_chars() for re-use.
+// 		Fix indenting of some JSON array_push() blocks.
 // =============================================================================================
 
 
@@ -156,6 +162,18 @@ fclose( $nagios_core_cfg_FH ) ;
 // because that's what we're going to feed (an array) to str_replace() so that we don't have
 // to make it into a regex to use with preg_replace(). That would be ugly.
 $illegal_object_name_chars_array = str_split( $illegal_object_name_chars ) ;
+
+
+// 2018-06-11 Handle illegal characters with reusable code - works for Host and Service names
+function fix_illegal_object_name_chars( $objectName, $illegal_chars_array, $illegal_char_replacement ) {
+	$objectName_before_fixing = $objectName ;		// Keep track of what it was before the fixing / replacement
+	$objectName =	str_replace( $illegal_chars_array, $illegal_char_replacement, $objectName ) ;	// Replace each and every illegal character!
+	if ( $objectName != $objectName_before_fixing ) {
+		$objectName = $objectName . " illegal characters " . md5( $objectName_before_fixing ) ;	// Add a hash to prevent Nagios object name collisions!!! W00t!!
+	}
+	return $objectName ;
+}
+
 
 // print $illegal_object_name_chars . PHP_EOL ;		// Debugging
 // print "debug exit" . PHP_EOL; exit ;			// Debugging
@@ -699,6 +717,7 @@ print "# $statsLeadingText AWS MetricAlarms: " . sizeof( $alarmsJSON->MetricAlar
 print "# $statsLeadingText Nagios AWS \"Hosts\": " . sizeof( $allHostNames ) . "\n\n";
 print "# Note: Host Groups added here are defined in hostgroups.cfg for use in other non-dynamic config files.\n\n\n";
 
+// Add to JSON structure for output
 array_push( $jsonOutput[ "notes" ], "$statsLeadingText websites: " . sizeof( $allSiteNames ) ) ;
 array_push( $jsonOutput[ "notes" ], "$statsLeadingText AWS MetricAlarms: " . sizeof( $alarmsJSON->MetricAlarms ) ) ;
 array_push( $jsonOutput[ "notes" ], "$statsLeadingText Nagios AWS \"Hosts\": " . sizeof( $allHostNames ) ) ;
@@ -740,6 +759,10 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 		continue ;
 	}
 
+	// 2018-06-11 Handle illegal characters in Host Name
+	$hostName_before_fixing = $hostName ;
+	$hostName = fix_illegal_object_name_chars( $hostName, $illegal_object_name_chars_array, $illegal_object_name_char_replacement ) ;
+
 	$hostList .= $hostName . ",";
 
 	if ( $hostNameFrom == "AWS/EC2:InstanceId" || $hostNameFrom == "System/Linux:InstanceId" ) {
@@ -767,16 +790,16 @@ define host {
 ENDOFTEXT;
 
 
-// Now add that Nagios object in JSON form
-array_push( $jsonOutput[ "hosts" ], array(
-	"use"			=> "aws-host-CloudWatch-Alarm-$customerShortName",
-	"host_name"		=> "$hostName",
-	"_AWS_Data"		=> "$shortSiteName:$hostNameFrom",
-	"hostgroups"		=> "$customerShortName in AWS - All",
-	"contact_groups"	=> "$nagiosContactGroupAlarms",
-	"notes"			=> "Notes: AWS Account \"<a href='https://$AWS_Account_Name.signin.aws.amazon.com/console'>$AWS_Account_Name</a>\". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href=\"/nagios/cgi-bin/status.cgi?host=$hostName\">each Nagios Service for this Host</a>.",
-	"notes_url"		=> "https://$AWS_Account_Name.signin.aws.amazon.com/console"
-) ) ;
+	// Now add that Nagios object in JSON form
+	array_push( $jsonOutput[ "hosts" ], array(
+		"use"			=> "aws-host-CloudWatch-Alarm-$customerShortName",
+		"host_name"		=> "$hostName",
+		"_AWS_Data"		=> "$shortSiteName:$hostNameFrom",
+		"hostgroups"		=> "$customerShortName in AWS - All",
+		"contact_groups"	=> "$nagiosContactGroupAlarms",
+		"notes"			=> "Notes: AWS Account \"<a href='https://$AWS_Account_Name.signin.aws.amazon.com/console'>$AWS_Account_Name</a>\". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href=\"/nagios/cgi-bin/status.cgi?host=$hostName\">each Nagios Service for this Host</a>.",
+		"notes_url"		=> "https://$AWS_Account_Name.signin.aws.amazon.com/console"
+	) ) ;
 
 
 
@@ -813,17 +836,17 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
 			$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
 
+			// 2018-06-11 Handle illegal characters in Host Name
+			$hostName_before_fixing = $hostName ;
+			$hostName = fix_illegal_object_name_chars( $hostName, $illegal_object_name_chars_array, $illegal_object_name_char_replacement ) ;
+
 			$resourceID = 	$alarmInstance->Dimensions[ 0 ]->Value ;
 			$serviceName = 	$alarmInstance->MetricName . ": " . $alarmInstance->AlarmName ;
 			$serviceName =	str_replace( "/", "_", $serviceName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
 
-			// 2018-05-24 Handle illegal characters
-			$serviceName_before_fixing = $serviceName ;		// Keep track of what it was before the fixing / replacement
-			$serviceName =	str_replace( $illegal_object_name_chars_array, $illegal_object_name_char_replacement, $serviceName ) ;	// Replace each and every illegal character!
-			if ( $serviceName != $serviceName_before_fixing ) {
-				$serviceName = $serviceName . " illegal characters " . md5( $hostName . $serviceName ) ;	// Add a hash to prevent Nagios object name collisions!!! W00t!!
-			}
-
+			// 2018-05-24 and 2018-06-11 Handle illegal characters in Service Name
+			$serviceName_before_fixing = $serviceName ;
+			$serviceName = fix_illegal_object_name_chars( $serviceName, $illegal_object_name_chars_array, $illegal_object_name_char_replacement ) ;
 
 			$primaryDimension = $alarmInstance->Dimensions[ 0 ]->Name ;
 
@@ -849,6 +872,11 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 				// Something similar *might* also have to be done for any Alarm for an AWS resource defined by multiple Dimensions. TBD as of 2018-01-29
 				$hostName = 	$webSiteName . ":" . $thisAlarmInstanceId ;
 				$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
+
+				// 2018-06-11 Handle illegal characters in Host Name
+				$hostName_before_fixing = $hostName ;
+				$hostName = fix_illegal_object_name_chars( $hostName, $illegal_object_name_chars_array, $illegal_object_name_char_replacement ) ;
+
 				$resourceID = 	$thisAlarmInstanceId ;
 
 				if ( ! isset( $allInstanceIDs[ $thisAlarmInstanceId ] ) ) {	// If we didn't find that InstanceId among all the Instances, it's bogus!
@@ -933,8 +961,10 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 					. "#c=CloudWatch&s=Alarms&alarm="
 					. rawurlencode( rawurlencode( $alarmInstance->AlarmName ) ) ;
 
-			if ( isset( $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ) ) {
-				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName ][ "contact_groups" ] ;
+			// Use hostName_before_fixing for the lookup in the config, because the goal is to still use bogus
+			// inputs if at all possible; we just need to keep the illegal chars out of the Nagios config.
+			if ( isset( $hostToContactgroupMapping[ $hostName_before_fixing ][ "contact_groups" ] ) ) {
+				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName_before_fixing ][ "contact_groups" ] ;
 			} else {
 				print "# NOTE: Skipping service name \"$serviceName\" - Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\".\n\n\n" ;
 				array_push( $jsonOutput[ "notes" ], "Skipping service name \"$serviceName\" - Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\"." ) ;
@@ -972,16 +1002,17 @@ define service {
 ENDOFTEXT;
 
 
-array_push( $jsonOutput[ "services" ], array(
-	"use"			=> "aws-service-CloudWatch-Alarm-$customerShortName",
-	"host_name"		=> "$hostName",
-	"service_description"	=> "$serviceName",
-	"_AWS_Data"		=> "$alarmInstance->AlarmName",
-	"contact_groups"	=> "$nagiosContactGroupAlarms",
-	"notes"			=> "Notes: $serviceExtInfo ($primaryDimension = <a href=\"$actionURL\">$resourceID</a>, AlarmName = \"<a href='$notesURL'>$alarmInstance->AlarmName</a>\", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href=\"https://$AWS_Account_Name.signin.aws.amazon.com/console\">$AWS_Account_Name</a>)",
-	"notes_url"		=> "$notesURL",
-	"action_url"		=> "$actionURL"
-) ) ;
+			// Add to JSON structure for output
+			array_push( $jsonOutput[ "services" ], array(
+				"use"			=> "aws-service-CloudWatch-Alarm-$customerShortName",
+				"host_name"		=> "$hostName",
+				"service_description"	=> "$serviceName",
+				"_AWS_Data"		=> "$alarmInstance->AlarmName",
+				"contact_groups"	=> "$nagiosContactGroupAlarms",
+				"notes"			=> "Notes: $serviceExtInfo ($primaryDimension = <a href=\"$actionURL\">$resourceID</a>, AlarmName = \"<a href='$notesURL'>$alarmInstance->AlarmName</a>\", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href=\"https://$AWS_Account_Name.signin.aws.amazon.com/console\">$AWS_Account_Name</a>)",
+				"notes_url"		=> "$notesURL",
+				"action_url"		=> "$actionURL"
+			) ) ;
 
 
 		}
@@ -1016,6 +1047,7 @@ define hostgroup {
 
 ENDOFTEXT;
 
+// Add to JSON structure for output
 array_push( $jsonOutput[ "hostgroups" ], array(
 	"hostgroup_name"	=> "$customerShortName in AWS - All",
 	"alias"			=> "$customerLongName - applications in the Amazon cloud",
@@ -1038,6 +1070,7 @@ define hostgroup {
 
 ENDOFTEXT;
 
+	// Add to JSON structure for output
 	array_push( $jsonOutput[ "hostgroups" ], array(
 		"hostgroup_name"	=> "$customerShortName in AWS - Incoming Alarms",
 		"alias"			=> "$customerLongName AWS Incoming SNS",
@@ -1057,6 +1090,8 @@ foreach( $allSiteNames as $siteName => $allHostNames ) {
 		if ( isset( $skipHostNames[ $hostName ] ) && $skipHostNames[ $hostName ] == "Y" ) {
 			continue ;	// Skip if we didn't find it in the config file earlier.
 		} else {
+			// 2018-06-11 Handle illegal characters in Host Name
+			$hostName = fix_illegal_object_name_chars( $hostName, $illegal_object_name_chars_array, $illegal_object_name_char_replacement ) ;
 			$hostList .= $hostName . ",";
 		}
 	}
@@ -1066,6 +1101,9 @@ foreach( $allSiteNames as $siteName => $allHostNames ) {
 	}
 
 	$hostList = rtrim( $hostList, "," ) ; // Trim off the last comma
+
+	// 2018-06-11 Handle illegal characters in Host Name
+	$siteName =	fix_illegal_object_name_chars( $siteName, $illegal_object_name_chars_array, $illegal_object_name_char_replacement ) ;
 
 	echo <<<ENDOFTEXT
 define hostgroup {
@@ -1079,11 +1117,12 @@ define hostgroup {
 ENDOFTEXT;
 
 
-array_push( $jsonOutput[ "hostgroups" ], array(
-	"hostgroup_name"	=> "$customerShortName in AWS - site $siteName",
-	"alias"			=> "$siteName $customerLongName",
-	"members"		=> "$hostList"
-) ) ;
+	// Add to JSON structure for output
+	array_push( $jsonOutput[ "hostgroups" ], array(
+		"hostgroup_name"	=> "$customerShortName in AWS - site $siteName",
+		"alias"			=> "$siteName $customerLongName",
+		"members"		=> "$hostList"
+	) ) ;
 
 
 
@@ -1116,6 +1155,7 @@ ENDOFTEXT;
 	}				// End of Are there any services??
 
 
+// Add to JSON structure for output
 array_push( $jsonOutput[ "servicegroups" ], array(
 	"servicegroup_name"	=> "$customerShortName in AWS",
 	"alias"			=> "$customerShortName Service Checks from AWS",

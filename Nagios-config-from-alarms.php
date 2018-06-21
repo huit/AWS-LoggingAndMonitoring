@@ -92,6 +92,9 @@
 // 		know all the illegal characters, this prevents them from knocking over the entire Nagios Core with bad names.
 // 		Also move illegal character replacement into function fix_illegal_object_name_chars() for re-use.
 // 		Fix indenting of some JSON array_push() blocks.
+// 2018-06-19 - Add optional custom notification_interval and notification_period per app read from schema extension
+// 		of the JSON $configFile. Also includes global defaults, and per-customer defaults.
+// 		New functions validate_notification_interval and validate_notification_period for re-use.
 // =============================================================================================
 
 
@@ -283,6 +286,9 @@ $myName = __FILE__ ;
 $nagiosMasterName = $configJSON->nagiosMasterName ;
 $defaultContactGroup = $configJSON->defaultContactGroup ;
 $nagiosContactGroupAlarms = $defaultContactGroup ;	// This should be replaced per-site later.
+$default_notification_interval = $configJSON->default_notification_interval ;	// Not validating the global default, since it's not changeable by customers themselves
+$default_notification_period = $configJSON->default_notification_period ;	// Not validating the global default, since it's not changeable by customers themselves
+$valid_notification_periods = $configJSON->valid_notification_periods ;
 
 if ( ! property_exists( $configJSON->accountsByName, $AWS_Account_Name ) ) {
 	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Can't find AWS account/profile \"$AWS_Account_Name\" in $configFile accountsByName" ) ;
@@ -300,6 +306,19 @@ foreach( array( "customerShortName", "customerLongName", "tagFilters", "applicat
 $customerShortName = $configJSON->accountsByName->$AWS_Account_Name->$appStack->customerShortName ;
 $customerLongName  = $configJSON->accountsByName->$AWS_Account_Name->$appStack->customerLongName ;
 
+
+// 2018-06-19 Use customer-specific defaults if they are provided. Since these are editable by the customer,
+// here we have to validate them - unlike the global defaults above.
+if ( property_exists( $configJSON->accountsByName->$AWS_Account_Name->$appStack, "default_notification_interval" ) &&
+		validate_notification_interval( $configJSON->accountsByName->$AWS_Account_Name->$appStack->default_notification_interval, $default_notification_interval ) ) {
+	$default_notification_interval = $configJSON->accountsByName->$AWS_Account_Name->$appStack->default_notification_interval ;
+	print "# Found default_notification_interval $default_notification_interval for $AWS_Account_Name $appStack" . PHP_EOL . PHP_EOL ;
+}
+if ( property_exists( $configJSON->accountsByName->$AWS_Account_Name->$appStack, "default_notification_period" ) &&
+		validate_notification_period( $configJSON->accountsByName->$AWS_Account_Name->$appStack->default_notification_period, $default_notification_period, $valid_notification_periods ) ) {
+	$default_notification_period = $configJSON->accountsByName->$AWS_Account_Name->$appStack->default_notification_period ;
+	print "# Found default_notification_period \"$default_notification_period\" for $AWS_Account_Name $appStack" . PHP_EOL . PHP_EOL ;
+}
 
 
 // Need to know how many different customer / stack groups we have.
@@ -473,6 +492,7 @@ echo <<<ENDOFTEXT
 
 # Note: Template names are automatically generated, ending with "-$customerShortName" to differentiate from other AWS customers.
 # "$defaultContactGroup" is a default, which is expected to be replaced by a value from "nagiosContactGroupAlarms" out of the site config file.
+# Same for "notification_interval" and "notification_period".
 
 
 define host {
@@ -481,6 +501,8 @@ define host {
 	contact_groups			$defaultContactGroup
 	check_command			FAKE-host-alive
 	parents				aws-$AWS_Account_Name-account
+	notification_interval		$default_notification_interval
+	notification_period		$default_notification_period
 	register			0
 }
 
@@ -495,7 +517,8 @@ define service {
 	notification_options		u,c,r,f,s
 	check_interval			30
 	retry_interval			25
-	notification_interval		30
+	notification_interval		$default_notification_interval
+	notification_period		$default_notification_period
 	max_check_attempts		1
 	event_handler			submit_AWS_config_refresh!$nagiosMasterName!Nagios config in sync - $customerShortName AWS CloudWatch Alarms!\$SERVICESTATE:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$LASTSERVICECHECK:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$
 	register			0
@@ -545,6 +568,8 @@ array_push( $jsonOutput[ "hosts" ], array(
 	"contact_groups"	=> "$defaultContactGroup",
 	"check_command"		=> "FAKE-host-alive",
 	"parents"		=> "aws-$AWS_Account_Name-account",
+	"notification_interval"	=> "$default_notification_interval",
+	"notification_period"	=> "$default_notification_period",
 	"register"		=> "0"
 ) ) ;
 
@@ -556,7 +581,8 @@ array_push( $jsonOutput[ "services" ], array(
 	"notification_options"		=> "u,c,r,f,s",
 	"check_interval"		=> "30",
 	"retry_interval"		=> "25",
-	"notification_interval"		=> "30",
+	"notification_interval"		=> "$default_notification_interval",
+	"notification_period"		=> "$default_notification_period",
 	"max_check_attempts"		=> "1",
 	"event_handler"			=> "submit_AWS_config_refresh!$nagiosMasterName!Nagios config in sync - $customerShortName AWS CloudWatch Alarms!\$SERVICESTATE:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$LASTSERVICECHECK:$nagiosMasterName:Nagios config in sync - $customerShortName AWS CloudWatch Alarms$!\$SERVICESTATE$!\$SERVICEATTEMPT$!\$MAXSERVICEATTEMPTS$",
 	"register"			=> "0"
@@ -636,6 +662,8 @@ $allSiteNames = array() ;		// Init to null
 $allHostNames = array() ;		// Init to null
 $skipHostNames = array() ;		// Init to null
 $hostToContactgroupMapping = array() ;	// Init to null
+$hostTo_notification_interval_Mapping = array() ;	// Init to null
+$hostTo_notification_period_Mapping = array() ;	// Init to null
 
 foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 
@@ -727,6 +755,8 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 
 	$skipHostNotInConfig = "" ;				// A flag for whether or not we have a matching config file entry. If not, we're not going to write a Nagios config for it.
 	$nagiosContactGroupAlarms = $defaultContactGroup ;	// Need to set the default each time in case we don't find one in the applicationSites below
+	$notification_interval = $default_notification_interval ;
+	$notification_period   = $default_notification_period ;
 	list( $partOne, $partTwo, $discard ) = preg_split( '/[\.:]/', $hostName, 3 ) ;
 	$shortSiteName = $partOne . "." . $partTwo ;
 
@@ -743,6 +773,23 @@ foreach( $allHostNames as $hostName => $hostNameFrom ) {
 						$hostToContactgroupMapping[ $hostNameFromSites ][ "contact_groups" ] = $nagiosContactGroupAlarms ;	// Build an association between the host name and the contact group for quick access when we do Services.
 						$skipHostNotInConfig = "" ;	// If we did find it, make sure we don't skip over it on the output!
 						$skipHostNames[ $hostName ] = "N" ;	// Flag it as to-be-skipped for later use outside these loops
+
+						// 2018-06-19 Only accept the notification_interval if it's an integer zero or greater
+						if ( property_exists( $applicationSiteInstance, "notification_interval" ) &&
+								validate_notification_interval( $applicationSiteInstance->notification_interval, $default_notification_interval ) ) {
+							$notification_interval = $applicationSiteInstance->notification_interval ;
+						}
+
+						// 2018-06-19 Only accept the notification_period if it's found in the array of valid ones
+						if ( property_exists( $applicationSiteInstance, "notification_period" ) &&
+								validate_notification_period( $applicationSiteInstance->notification_period, $default_notification_period, $valid_notification_periods ) ) {
+							$notification_period = $applicationSiteInstance->notification_period ;
+						}
+
+						// 2018-06-19 Build an association for quick access when we do Services.
+						$hostTo_notification_interval_Mapping[ $hostNameFromSites ][ "notification_interval" ] = $notification_interval ;
+						$hostTo_notification_period_Mapping[ $hostNameFromSites ][ "notification_period" ] = $notification_period ;
+
 						break ;
 					} else {
 						$skipHostNotInConfig = "Y" ;	// If it's not matched by any config entry, we shouldn't be generating a config for it.
@@ -780,6 +827,8 @@ define host {
 	_AWS_Data		$shortSiteName:$hostNameFrom
 	hostgroups		$customerShortName in AWS - All
 	contact_groups		$nagiosContactGroupAlarms
+	notification_interval	$notification_interval
+	notification_period	$notification_period
 	notes			Notes: AWS Account "<a href='https://$AWS_Account_Name.signin.aws.amazon.com/console'>$AWS_Account_Name</a>". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href="/nagios/cgi-bin/status.cgi?host=$hostName">each Nagios Service for this Host</a>.
 	notes_url		https://$AWS_Account_Name.signin.aws.amazon.com/console
 }
@@ -797,6 +846,8 @@ ENDOFTEXT;
 		"_AWS_Data"		=> "$shortSiteName:$hostNameFrom",
 		"hostgroups"		=> "$customerShortName in AWS - All",
 		"contact_groups"	=> "$nagiosContactGroupAlarms",
+		"notification_interval"	=> "$notification_interval",
+		"notification_period"	=> "$notification_period",
 		"notes"			=> "Notes: AWS Account \"<a href='https://$AWS_Account_Name.signin.aws.amazon.com/console'>$AWS_Account_Name</a>\". For links directly to the Alarms and to the $hostNameFrom, see the Action and Notes URLs on <a href=\"/nagios/cgi-bin/status.cgi?host=$hostName\">each Nagios Service for this Host</a>.",
 		"notes_url"		=> "https://$AWS_Account_Name.signin.aws.amazon.com/console"
 	) ) ;
@@ -820,6 +871,10 @@ print "#########################################################################
 print "# Services\n\n" ;
 
 foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mighty similar to the one above which does "Hosts". To-Do: unify the two.
+
+	// 2018-06-19 New custom notification options
+	$notification_interval = $default_notification_interval ;
+	$notification_period   = $default_notification_period ;
 
 	foreach( $alarmInstance->AlarmActions as $alarmAction ) {
 		if ( preg_match( "/nagios/i", $alarmAction ) ) {	// Only if it's a Nagios action!
@@ -965,6 +1020,8 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 			// inputs if at all possible; we just need to keep the illegal chars out of the Nagios config.
 			if ( isset( $hostToContactgroupMapping[ $hostName_before_fixing ][ "contact_groups" ] ) ) {
 				$nagiosContactGroupAlarms = $hostToContactgroupMapping[ $hostName_before_fixing ][ "contact_groups" ] ;
+				$notification_interval = $hostTo_notification_interval_Mapping[ $hostName_before_fixing ][ "notification_interval" ] ;
+				$notification_period = $hostTo_notification_period_Mapping[ $hostName_before_fixing ][ "notification_period" ] ;
 			} else {
 				print "# NOTE: Skipping service name \"$serviceName\" - Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\".\n\n\n" ;
 				array_push( $jsonOutput[ "notes" ], "Skipping service name \"$serviceName\" - Could not find \"nagiosContactGroupAlarms\" in config JSON for $hostName in $customerShortName \"applicationSites\"." ) ;
@@ -991,6 +1048,8 @@ define service {
 	service_description		$serviceName
 	_AWS_Data			$alarmInstance->AlarmName
 	contact_groups			$nagiosContactGroupAlarms
+	notification_interval		$notification_interval
+	notification_period		$notification_period
 	notes				Notes: $serviceExtInfo ($primaryDimension = <a href="$actionURL">$resourceID</a>, AlarmName = "<a href='$notesURL'>$alarmInstance->AlarmName</a>", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href="https://$AWS_Account_Name.signin.aws.amazon.com/console">$AWS_Account_Name</a>)
 	notes_url			$notesURL
 	action_url			$actionURL
@@ -1009,6 +1068,8 @@ ENDOFTEXT;
 				"service_description"	=> "$serviceName",
 				"_AWS_Data"		=> "$alarmInstance->AlarmName",
 				"contact_groups"	=> "$nagiosContactGroupAlarms",
+				"notification_interval"	=> "$notification_interval",
+				"notification_period"	=> "$notification_period",
 				"notes"			=> "Notes: $serviceExtInfo ($primaryDimension = <a href=\"$actionURL\">$resourceID</a>, AlarmName = \"<a href='$notesURL'>$alarmInstance->AlarmName</a>\", Namespace = $namespace, MetricName = $alarmInstance->MetricName, Actual Alarm Evaluation Period = $evaluationPeriodMinutes $evaluationPeriodMinutesUnit, AWS Account = <a href=\"https://$AWS_Account_Name.signin.aws.amazon.com/console\">$AWS_Account_Name</a>)",
 				"notes_url"		=> "$notesURL",
 				"action_url"		=> "$actionURL"
@@ -1191,6 +1252,48 @@ function bailout( $exit_state, $filehandle, $message ) {
 
 }
 // =============================================================================================
+
+
+
+// =============================================================================================
+// Validate a notification_interval
+// Must be:
+// - an integer
+// - zero or greater
+// Note we're not allowing numbers in string form. It's just too much extra work to validate.
+// If the integer is quoted in the input config like "30" we're just not going to take it. So there.
+function validate_notification_interval( $notification_interval, $default_notification_interval ) {
+
+	if ( is_int( $notification_interval ) && $notification_interval >= 0 ) {
+		return true ;
+	} else {
+		print "# NOTE: Found notification_interval $notification_interval but skipping it because it is not a valid integer value zero or greater. Using default $default_notification_interval" . PHP_EOL ;
+		return false ;
+	}
+}
+// =============================================================================================
+
+
+
+
+
+
+// =============================================================================================
+// Validate a notification_period
+// String must be found in the array of allowed notification periods, global config object "valid_notification_periods"
+function validate_notification_period( $notification_period, $default_notification_period, $valid_notification_periods ) {
+
+	if ( in_array( $notification_period, $valid_notification_periods ) ) {
+		return true ;
+	} else {
+		print "# NOTE: Found notification_period \"$notification_period\" but skipping it because it is not in the list of valid_notification_periods. Using default \"$default_notification_period\"." . PHP_EOL ;
+		return false ;
+	}
+}
+// =============================================================================================
+
+
+
 
 
 // Now we're in the wrap-up phase. Whew!

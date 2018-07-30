@@ -75,6 +75,19 @@
 // missed here until now. The previous lack of this substitution was making incoming SNS messages
 // turn into Host & Service names that did not match what the automation had generated, so they were
 // getting dropped with logged warnings that said "the host could not be found".
+//
+// 2018-07-18
+// - Change variable name "alarmNameExploded" to "webSiteNameExploded" to align with Nagios-config-from-alarms.php
+// script for easier debugging and ensuring that the two generate Host Names the same way.
+// - Change variable name "nagiosHostName" to "hostName" - same reason
+// - Change variable name "nagiosServiceName" to "serviceName" - same reason
+//
+// 2018-07-27
+// - Add "constructed-name" Host Name generation to match Nagios-config-from-alarms.php
+// - Add "AWSAccountId" processing
+// - Use "AWSAccountId" for the last resort name generation with ".constructed-name-"
+// - Init Trigger object if missing, and init default child objects inside Trigger if they are missing
+// - Generate Host Name from InstanceId in Trigger->Dimensions instead of blindly using Trigger->Dimensions[ 0 ]->value
 
 
 
@@ -366,24 +379,32 @@ if ( $safeToProcess ) {
 
 		// Go through all the objects we expect to be in the Message.
 		// If something is not there, create it with a place-holder value.
-		foreach( array( "AlarmName", "AlarmDescription", "NewStateValue", "NewStateReason", "StateChangeTime" ) as $testThis ) {
+		foreach( array( "AlarmName", "AlarmDescription", "AWSAccountId", "NewStateValue", "NewStateReason", "StateChangeTime" ) as $testThis ) {
 			if ( ! property_exists( $messageJSON, $testThis ) ) {
 				fwrite( $logFH, "Missing object replaced with default value: " . $testThis . "\n" ) ;
 				$messageJSON->$testThis = "undefined " . $testThis ;
 			}
 		}
+
+		// Init to empty object if it's not there already
 		if ( ! property_exists( $messageJSON, "Trigger" ) ) {
-			$messageJSON->Trigger = "" ;
-			if ( ! property_exists( $messageJSON->Trigger, "MetricName" ) ) {
-				fwrite( $logFH, "Missing object replaced with default value: Trigger->MetricName\n" ) ;
-				$messageJSON->Trigger->MetricName = "undefined Trigger MetricName" ;
+			$messageJSON->Trigger = array() ;
+		}
+
+		// Go through all the objects we expect to be in the Trigger object.
+		// If something is not there, create it with a place-holder value.
+		foreach( array( "MetricName", "Namespace" ) as $testThis ) {
+			if ( ! property_exists( $messageJSON->Trigger, $testThis ) ) {
+				fwrite( $logFH, "Missing object replaced with default value: Trigger->" . $testThis . "\n" ) ;
+				$messageJSON->Trigger->$testThis = "undefined Trigger " . $testThis ;
 			}
 		}
 
 		if ( $logToFile ) {
 			fwrite( $logFH, "AlarmName: " 		. $messageJSON->AlarmName . "\n" ) ;
 			fwrite( $logFH, "AlarmDescription: " 	. $messageJSON->AlarmDescription . "\n" ) ;
-			fwrite( $logFH, "Trigger->MetricName: "	. $messageJSON->Trigger->MetricName . "\n\n" ) ;
+			fwrite( $logFH, "Trigger->MetricName: "	. $messageJSON->Trigger->MetricName . "\n" ) ;
+			fwrite( $logFH, "Trigger->Namespace: "	. $messageJSON->Trigger->Namespace . "\n\n" ) ;
 		}
 
 
@@ -416,16 +437,58 @@ if ( $safeToProcess ) {
 // echo "[`date +%s`] PROCESS_SERVICE_CHECK_RESULT;kwp490-ELB-Alarm;HealthyHostCount;0;Foo bar baz" > ~nagios/var/rw/nagios.cmd
 // echo "[`date +%s`] PROCESS_HOST_CHECK_RESULT;kwp490-ELB-Alarm;0;Foink" > ~nagios/var/rw/nagios.cmd
 
-		$alarmNameExploded = explode( " ", $messageJSON->AlarmName, 2 ) ;
-		$webSiteName = $alarmNameExploded[ 0 ] ;
-		$webSiteName = str_replace( "-", ".", $webSiteName ) ;
-		$nagiosHostName = $webSiteName . ":" . $messageJSON->Trigger->Dimensions[ 0 ]->value ;
-		$nagiosServiceName = $messageJSON->Trigger->MetricName . ": " . $messageJSON->AlarmName ;	// Updated 2015-08-28 to match the new format from ~nagios/libexec/FAS/Nagios-config-from-alarms.php line 452 -- Stefan
-		$nagiosHostName = str_replace( "/", "_", $nagiosHostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
-		$nagiosServiceName = str_replace( "/", "_", $nagiosServiceName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
 
-		if ( isset( $alarmNameExploded[ 1 ] ) && $alarmNameExploded[ 1 ] != null ) {
-			$alarmNameExploded1 = $alarmNameExploded[ 1 ] ;
+// #####################################################################################################################
+// Begin Host and Service Name Generation
+
+// IMPORTANT NOTE: The Nagios Host Name and Service Name created next should match EXACTLY with the ones created
+// in the script "Nagios-config-from-alarms.php" which creates the config files. If they don't match, the Passive
+// Check will get dropped on the floor with messages like:
+// "Warning:  Passive check result was received... but the host could not be found"
+// and "Error: External command failed"
+// and "External command error: Command failed"
+// (However, Active checks should still work OK.)
+
+// 2018-07-23 TO DO: handle Alarm for an AWS resource defined by multiple Dimensions
+
+		$webSiteNameExploded = explode( " ", $messageJSON->AlarmName, 2 ) ;
+		if ( preg_match( "/[\.:-]/", $webSiteNameExploded[ 0 ] ) ) {		// If there is a period and/or colon and/or hyphen,
+			$webSiteName = $webSiteNameExploded[ 0 ] ;			// then assume we have something in the first element like a FQDN or site name we can use.
+		} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
+			$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
+		} else {
+			$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $messageJSON->AWSAccountId ;	// As a last resort, make up something that will still work when we split it later.
+		}
+		$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
+		$hostName = 	$webSiteName . ":" . $messageJSON->Trigger->Dimensions[ 0 ]->value ;
+
+		if ( $messageJSON->Trigger->Namespace == "AWS/EC2" || $messageJSON->Trigger->Namespace == "System/Linux" ) {
+
+			$thisAlarmInstanceId = "" ;
+			foreach( $messageJSON->Trigger->Dimensions as $Dimension ) {		// Reach into Dimensions[] and find the "name": "InstanceId"
+				if ( isset( $Dimension->name ) && $Dimension->name == "InstanceId" ) {
+					$thisAlarmInstanceId = $Dimension->value ;
+					break ;
+				}
+			}
+
+			// Re-generate the "Host" name from the Instance ID, which is NOT necessarily Dimensions[ 0 ]
+			// Something similar *might* also have to be done for any Alarm for an AWS resource defined by multiple Dimensions. TBD as of 2018-01-29
+			$hostName = 	$webSiteName . ":" . $thisAlarmInstanceId ;
+		}
+
+		$hostName =	str_replace( "/", "_", $hostName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
+
+		$serviceName = $messageJSON->Trigger->MetricName . ": " . $messageJSON->AlarmName ;	// Updated 2015-08-28 to match the new format from ~nagios/libexec/FAS/Nagios-config-from-alarms.php line 452 -- Stefan
+		$serviceName = str_replace( "/", "_", $serviceName ) ;	// 2017-11-22 for Nagios XI Config Prep Tool compatibility
+
+
+// End Host and Service Name Generation
+// #####################################################################################################################
+
+
+		if ( isset( $webSiteNameExploded[ 1 ] ) && $webSiteNameExploded[ 1 ] != null ) {
+			$alarmNameExploded1 = $webSiteNameExploded[ 1 ] ;
 		} else {
 			$alarmNameExploded1 = "(Error: Improper CloudWatch Alarm Name format!!)" ;
 			if ( $logToFile ) {
@@ -439,8 +502,8 @@ if ( $safeToProcess ) {
 				. $messageJSON->StateChangeTime ;
 
 		$nagiosMessage = "[" . date( "U" ) . "] PROCESS_SERVICE_CHECK_RESULT;" 
-				. $nagiosHostName . ";"
-				. $nagiosServiceName . ";"
+				. $hostName . ";"
+				. $serviceName . ";"
 				. $nagiosStatus . ";"
 				. $nagiosStatusInfo ;
 

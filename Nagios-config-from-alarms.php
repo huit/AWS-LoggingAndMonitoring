@@ -95,6 +95,10 @@
 // 2018-06-19 - Add optional custom notification_interval and notification_period per app read from schema extension
 // 		of the JSON $configFile. Also includes global defaults, and per-customer defaults.
 // 		New functions validate_notification_interval and validate_notification_period for re-use.
+// 2018-07-27 - Add grabbing 'accountNumber' from config file, needed for constructing Host Name in the edge
+// 		case where the Alarm Name is whacked and we're making a "constructed-name" to prevent collisions.
+// 		Change last resort ".constructed-name-" to use $accountNumber.
+// 2018-08-23 - Turning off the "does not have all the expected Tags" because it's causing excessive config regeneration
 // =============================================================================================
 
 
@@ -298,6 +302,18 @@ if ( ! property_exists( $configJSON->accountsByName->$AWS_Account_Name, $appStac
 	bailout( STATE_UNKNOWN, $jsonFH, "# Error: Can't find app stack \"$appStack\" in $configFile accountsByName->$AWS_Account_Name" ) ;
 }
 
+// 2018-07-27 - We now need the AWS Account numeric ID in case we're making a "constructed-name" to prevent collisions.
+// This is because the AWS Account Name (string) isn't in the SNS payload; therefore we use numeric ID since that is in the SNS message.
+$accountNumber = $AWS_Account_Name ;	// Set a default that will still work for name-collision-avoidance even if the integer ID can't be found.
+if ( property_exists( $configJSON->accountsByName->$AWS_Account_Name, "accountNumber" ) ) {
+	$accountNumber = $configJSON->accountsByName->$AWS_Account_Name->accountNumber ;
+// 	print "# accountNumber $accountNumber" . PHP_EOL ;	// debugging
+// 	print "#" . PHP_EOL ;
+} else {
+	print "# Warning: Can't find \"accountNumber\" for \"$AWS_Account_Name\" - defaulting to \"$accountNumber\" as a last resort" . PHP_EOL ;
+	print "#" . PHP_EOL ;
+}
+
 foreach( array( "customerShortName", "customerLongName", "tagFilters", "applicationSites" ) as $testThis ) {	// Validate these
 	if ( ! property_exists( $configJSON->accountsByName->$AWS_Account_Name->$appStack, $testThis ) ) {
 		bailout( STATE_UNKNOWN, $jsonFH, "# Error: Missing \"$testThis\" in $configFile accountsByName->$AWS_Account_Name->$appStack" ) ;
@@ -312,12 +328,12 @@ $customerLongName  = $configJSON->accountsByName->$AWS_Account_Name->$appStack->
 if ( property_exists( $configJSON->accountsByName->$AWS_Account_Name->$appStack, "default_notification_interval" ) &&
 		validate_notification_interval( $configJSON->accountsByName->$AWS_Account_Name->$appStack->default_notification_interval, $default_notification_interval ) ) {
 	$default_notification_interval = $configJSON->accountsByName->$AWS_Account_Name->$appStack->default_notification_interval ;
-	print "# Found default_notification_interval $default_notification_interval for $AWS_Account_Name $appStack" . PHP_EOL . PHP_EOL ;
+	print "# Found default_notification_interval $default_notification_interval for $AWS_Account_Name $appStack" . PHP_EOL . "#" . PHP_EOL ;
 }
 if ( property_exists( $configJSON->accountsByName->$AWS_Account_Name->$appStack, "default_notification_period" ) &&
 		validate_notification_period( $configJSON->accountsByName->$AWS_Account_Name->$appStack->default_notification_period, $default_notification_period, $valid_notification_periods ) ) {
 	$default_notification_period = $configJSON->accountsByName->$AWS_Account_Name->$appStack->default_notification_period ;
-	print "# Found default_notification_period \"$default_notification_period\" for $AWS_Account_Name $appStack" . PHP_EOL . PHP_EOL ;
+	print "# Found default_notification_period \"$default_notification_period\" for $AWS_Account_Name $appStack" . PHP_EOL . "#" . PHP_EOL ;
 }
 
 
@@ -635,7 +651,10 @@ foreach( $EC2InstancesJSON->Reservations as $instancesReservation ) {
 		}
 
 		if ( ! isset( $siteID ) || $siteID == "" || ! isset( $instanceName ) || $instanceName == "" ) {
-			print "# Note: Instance $instanceID named \"$instanceName\" does not have all the expected Tags such as \"Product\" and/or \"aws:cloudformation:stack-name\".\n\n" ;
+// 2018-08-23 - Turning off the "does not have all the expected Tags" because it's causing config regeneration
+// 		every time an Instance re-spins, and lately there's been high churn resulting in a config reload
+// 		and HUP to Nagios every 10-20 minutes on one account! That's nuts! We'll still add it to the JSON though.
+// 			print "# Note: Instance $instanceID named \"$instanceName\" does not have all the expected Tags such as \"Product\" and/or \"aws:cloudformation:stack-name\".\n\n" ;
 			array_push( $jsonOutput[ "notes" ], "Instance $instanceID named \"$instanceName\" does not have all the expected Tags such as \"Product\" and/or \"aws:cloudformation:stack-name\"." ) ;
 // 2018-01-31 - Skipping disabled because it doesn't appear that we're using $siteID nor $instanceName right now!!
 // 			print "# Skipping instance $instanceID named \"$instanceName\" - found no usable info in Tags!\n\n" ;
@@ -676,7 +695,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {
 			} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
 				$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
 			} else {
-				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $AWS_Account_Name ;	// As a last resort, make up something that will still work when we split it later.
+				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $accountNumber ;	// As a last resort, make up something that will still work when we split it later.
 			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
@@ -885,7 +904,7 @@ foreach( $alarmsJSON->MetricAlarms as $alarmInstance ) {	// Yes this loop is mig
 			} elseif ( isset( $webSiteNameExploded[ 1 ] ) ) {			// If we don't have a colon or space in the first element, and the second element exists,
 				$webSiteName = $webSiteNameExploded[ 0 ] . "." . $webSiteNameExploded[ 1 ] . "-constructed-name";	// then construct something from the first two words that we can later break apart.
 			} else {
-				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $AWS_Account_Name ;	// As a last resort, make up something that will still work when we split it later.
+				$webSiteName = $webSiteNameExploded[ 0 ] . ".constructed-name-" . $accountNumber ;	// As a last resort, make up something that will still work when we split it later.
 			}
 			$webSiteName = 	str_replace( "-", ".", $webSiteName ) ;
 			$hostName = 	$webSiteName . ":" . $alarmInstance->Dimensions[ 0 ]->Value ;
